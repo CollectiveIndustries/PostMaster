@@ -1,0 +1,50 @@
+# Python bytecode files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python distribution files
+*.egg
+*.egg-info
+*.dist-info
+*.deb
+*.rpm
+
+# Python virtual environments
+venv/
+ENV/
+env/
+*.env
+
+# IDE configuration files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# MacOS system files
+.DS_Store
+
+# Windows system files
+Thumbs.db
+
+# Logs
+*.log
+
+# Config files
+config.ini
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Pytest cache
+.cache
+
+# Environment variables
+.env
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
