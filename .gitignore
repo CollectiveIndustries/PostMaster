@@ -48,3 +48,9 @@ config.ini
 build/
 dist/
 *.egg-info/
+
+# email files
+*.eml
+
+# temp Python files
+temp*
