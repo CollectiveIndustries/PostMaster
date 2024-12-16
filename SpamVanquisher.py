@@ -263,6 +263,7 @@ def main():
         print("Loaded existing model and vectorizer.")
     else:
         # Perform initial training
+        print("No Email Model found. Pulling data from IMAP Server to retrain.")
         classifier, vectorizer = post_office.retrain_model(model_file, vectorizer_file)
 
     # Start the daemon thread for periodic retraining
