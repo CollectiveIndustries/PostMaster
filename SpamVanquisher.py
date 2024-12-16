@@ -136,6 +136,7 @@ class PostOffice:
                         payload = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
 
                 # Store email with id, type, headers, and contents
+                logging.debug("Waiting for email lock.....")
                 with self.lock:
                     logging.debug("Storing message")
                     self.emails[email_id.decode()] = {
@@ -157,6 +158,17 @@ class PostOffice:
         logging.debug("Loading training Data (spam/ham) from IMAP server")
         self.fetch_emails(self.spam_learn, "spam")
         self.fetch_emails(self.ham_learn, "ham")
+
+        # Move spam and ham emails to their respective folders
+        # The spam_learn and ham_learn folders should be used as a que once processed
+        # data is moved out as the model is already built
+        for email_id, email_data in self.emails.items():
+            if email_data["type"] == "spam":
+                logging.debug(f"Moving email {email_id} to spam folder")
+                self.move(self.spam_learn, self.spam_folder, email_id)
+            else:
+                logging.debug(f"Moving email {email_id} to ham folder")
+                self.move(self.ham_learn, self.ham_folder, email_id)
 
         # Extract emails and labels for training
         emails = [
