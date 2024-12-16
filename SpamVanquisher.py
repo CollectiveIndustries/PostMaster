@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics import accuracy_score
 from email.header import decode_header
+import logging
 
 def decode_email_header(header_value):
     if not header_value:
@@ -31,7 +32,7 @@ def decode_email_header(header_value):
             try:
                 header += part.decode(encoding, errors='ignore')
             except (LookupError, UnicodeDecodeError) as e:
-                print(f"Error decoding part with encoding {encoding}: {e}")
+                logging.error(f"Error decoding part with encoding {encoding}: {e}")
                 header += part.decode('utf-8', errors='ignore')  # Fallback to utf-8
         else:
             header += part
@@ -59,6 +60,8 @@ class PostOffice:
 
         self.TrainingDataPath = config.get('DaemonSettings', 'data_path')
         self.ScanTime = config.get('DaemonSettings', 'scan_time')
+
+        self.LogFile = config.get('DaemonSettings', 'log_file')
 
         # Emails dictionary: id, type, contents
         self.emails = {}
@@ -140,11 +143,11 @@ class PostOffice:
         # Save the model and vectorizer
         joblib.dump(classifier, model_file)
         joblib.dump(vectorizer, vectorizer_file)
-        print("Model and vectorizer updated.")
+        logging.info("Model and vectorizer updated.")
 
         # Test the updated model
         y_pred = classifier.predict(X_test)
-        print(f"Updated Accuracy: {accuracy_score(y_test, y_pred):.2f}")
+        logging.info(f"Updated Accuracy: {accuracy_score(y_test, y_pred):.2f}")
 
         return classifier, vectorizer
 
@@ -160,10 +163,10 @@ class PostOffice:
         """Runs periodic retraining in a separate thread."""
         def trainer():
             while True:
-                print("Checking for new training data...")
+                logging.info("Checking for new training data...")
                 with self.lock:
                     self.retrain_model(model_file, vectorizer_file)
-                print("Training updated. Waiting for the next interval...")
+                logging.info("Training updated. Waiting for the next interval...")
                 time.sleep(self.ScanTime)
         
         thread = threading.Thread(target=trainer, daemon=True)
@@ -238,7 +241,7 @@ class PostOffice:
                 mail.store(email_id, '+FLAGS', '\\Deleted')
                 mail.expunge()
             else:
-                print(f"Failed to move email {email_id} from {source_folder} to {destination_folder}")
+                logging.error(f"Failed to move email {email_id} from {source_folder} to {destination_folder}")
 
             mail.close()
             mail.logout()
@@ -251,6 +254,12 @@ def main():
     # Initialize PostOffice
     post_office = PostOffice()
 
+    logging.basicConfig(
+        filename=post_office.LogFile,  # Log file name
+        level=logging.INFO,     # Set logging level to INFO
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+
     # File paths for model and vectorizer
     model_file = f"{post_office.TrainingDataPath}/naive_bayes_classifier.pkl"
     vectorizer_file = f"{post_office.TrainingDataPath}/vectorizer.pkl"
@@ -260,10 +269,10 @@ def main():
         # Load existing model and vectorizer
         classifier = joblib.load(model_file)
         vectorizer = joblib.load(vectorizer_file)
-        print("Loaded existing model and vectorizer.")
+        logging.info("Loaded existing model and vectorizer.")
     else:
         # Perform initial training
-        print("No Email Model found. Pulling data from IMAP Server to retrain.")
+        logging.warning("No Email Model found. Pulling data from IMAP Server to retrain.")
         classifier, vectorizer = post_office.retrain_model(model_file, vectorizer_file)
 
     # Start the daemon thread for periodic retraining
@@ -290,18 +299,18 @@ def main():
     training_thread = start_training_thread()
     processing_thread = start_processing_thread()
 
-    print("Daemon threads for training and processing started.")
+    logging.info("Daemon threads for training and processing started.")
 
     # Keep the main thread alive
     try:
         while True:
             pass
     except KeyboardInterrupt:
-        print("Stopping threads...")
+        logging.info("Stopping threads...")
         post_office.stop_threads()
         training_thread.join()
         processing_thread.join()
-        print("Threads stopped.")
+        logging.info("Threads stopped.")
 
 if __name__ == "__main__":
     main()
