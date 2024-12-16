@@ -54,3 +54,6 @@ dist/
 
 # temp Python files
 temp*
+
+# ML Training Data
+*.pkl
