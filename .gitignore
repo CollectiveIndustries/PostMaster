@@ -57,3 +57,5 @@ temp*
 
 # ML Training Data
 *.pkl
+*.h5
+*.keras
