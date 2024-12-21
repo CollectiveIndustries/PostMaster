@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+import os
 from lib.Daemon import DaemonThread
 from lib.config import config
 from lib.post import PostOffice
@@ -26,22 +27,41 @@ if __name__ == "__main__":
     spam_learn = config.SPAM_LEARN
     ham_learn = config.HAM_LEARN
 
-    def LogRotate(event: threading.Event):
-        Logger.run()
+    def LogRotate(stop_event: threading.Event):
+        logging.info("Log rotation thread started. Monitoring file: %s", log_file)
+        while not stop_event.is_set():
+            try:
+                if os.path.exists(log_file):
+                    file_size = os.path.getsize(log_file)
+                    logging.debug("Current log file size: %d bytes", file_size)
+                    if file_size >= config.MAX_SIZE_MB:
+                        logging.warning("Log file size exceeded threshold: %s", log_file)
+                        Logger.rotate()
+                else:
+                    with open(log_file, 'w') as log_file:
+                        log_file.write("")  # Initialize an empty log file
+            except Exception as e:
+                logging.error("Error in log rotation thread: %s", e, exc_info=True)
+            time.sleep(config.CHECK_INTERVAL)
+        logging.info("Log rotation thread stopped.")
 
     def Trainer(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
         scan_interval = scan_interval or config.SCAN_TIME
+        logging.info("Training thread started.")
+        logging.debug(f"sync_event ID: {id(sync_event)}")
         while not stop_event.is_set():        
-            logging.info("Training task started.")
             NeuralNet.load_model()
+
             Spam = POBox.fetch_emails(spam_learn)
             SpamLabels = [1] * len(Spam)
             logging.info("Starting NeuralNetwork training")
+
             NeuralNet.train(Spam,labels=SpamLabels)
             logging.info(f"Spam Training completed: {len(Spam)} processed.")
             Ham = POBox.fetch_emails(ham_learn)
             HamLabels = [0] * len(Ham)
             NeuralNet.train(Ham,HamLabels)
+
             logging.info(f"Ham Training completed: {len(Ham)} processed. saving model")
             NeuralNet.save_model()
             logging.info("Model saved.")
@@ -52,13 +72,16 @@ if __name__ == "__main__":
             logging.info("Moving Trained Emails.")
             process_mail(Spam,spam_learn,spam_folder)
             process_mail(Ham,ham_learn,ham_folder)
-            sync_event.clear()
+            logging.info(f"Finished moving training data. wating {scan_interval} seconds to retrain.")
             time.sleep(scan_interval)
+            sync_event.clear()
+
         logging.info("Stop Called! shutting Trainer thread down!")
 
 
     def PostMan(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
         scan_interval = scan_interval or config.SCAN_TIME
+        logging.debug(f"sync_event ID: {id(sync_event)}")
         while not stop_event.is_set():
             logging.info("Classification task waiting for training.")
             sync_event.wait()  # Wait for the training task to complete
@@ -100,11 +123,11 @@ if __name__ == "__main__":
 
     ScanTime = int(config.SCAN_TIME)
 
-    Logger = LogRotation(StopEvent)
+    Logger = LogRotation()
     POBox = PostOffice(StopEvent)
     NeuralNet = MailNet()
 
-    LogDaemon = DaemonThread(name="LogRotation", target=LogRotate)
+    LogDaemon = DaemonThread(name="LogRotation", target=LogRotate, args=(StopEvent),)
     TrainingDaemon = DaemonThread(name="Trainer", target=Trainer, args=(ProcEvent, StopEvent),)
     OfficeDaemon = DaemonThread(name="PostMan", target=PostMan, args=(ProcEvent, StopEvent),)
 

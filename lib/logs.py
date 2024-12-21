@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from .config import config
 
 class LogRotation(threading.Thread):
-    def __init__(self, stop_event):
+    def __init__(self):
         """
         Thread to monitor and rotate log files when they exceed a given size.
         """
@@ -18,38 +18,17 @@ class LogRotation(threading.Thread):
         self.max_size_mb = config.MAX_SIZE_MB * 1024 * 1024  # Convert to bytes
         self.backup_count = config.BACKUP_COUNT
         self.check_interval = config.CHECK_INTERVAL
-        self.stop_event = stop_event
         logging.info("Log rotation thread intilized.")
 
     def start(self):
         logging.info("Starting LogRotationThread...")
         super().start()
 
-    def run(self):
-        """Thread run method to monitor the log file size and rotate when needed."""
-        logging.info("Log rotation thread started. Monitoring file: %s", self.log_file)
-        while not self.stop_event.is_set():
-            try:
-                if os.path.exists(self.log_file):
-                    file_size = os.path.getsize(self.log_file)
-                    logging.debug("Current log file size: %d bytes", file_size)
-                    if file_size >= self.max_size_mb:
-                        logging.warning("Log file size exceeded threshold: %s", self.log_file)
-                        self._rotate_logs()
-                else:
-                    with open(self.log_file, 'w') as log_file:
-                        log_file.write("")  # Initialize an empty log file
-            except Exception as e:
-                logging.error("Error in log rotation thread: %s", e, exc_info=True)
-            time.sleep(self.check_interval)
-        logging.info("Log rotation thread stopped.")
-
     def stop(self):
         """Stops the log rotation thread."""
         logging.info("Stopping log rotation thread...")
-        self.stop_event.set()
 
-    def _rotate_logs(self):
+    def rotate(self):
         """Handles rotating the log files based on daily, weekly, and monthly retention rules."""
         logging.info("Rotating logs for file: %s", self.log_file)
 
