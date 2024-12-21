@@ -7,6 +7,8 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 import logging
 import os
 from .config import config
+from .helper import extract_email_data
+
 
 class MailNet():
     def __init__(self, max_vocab_size=10000):
@@ -31,8 +33,9 @@ class MailNet():
         # text[2]: Sender
         # text[3]: Recipient
         # text[4]: Body
+        # TODO Network maping method to config file
 
-        text = [f"{text[1]} {text[2]} {text[4]}" for text in email_text]
+        text = [ extract_email_data(email) for email in email_text]
 
         # Tokenizer fit
         self.tokenizer.fit_on_texts(text)

@@ -8,6 +8,7 @@ from lib.config import config
 from lib.post import PostOffice
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
+from lib.helper import extract_email_data
 
 def bulk_move(email_list, src_folder, dest_folder):
     total_mail = len(email_list)
@@ -146,7 +147,7 @@ if __name__ == "__main__":
             for email in emails_to_classify:
                 email_id, subject, sender, recipient, payload = email
                 # Preprocess email data (e.g., combine fields for input to model)
-                mail_txt.append(f"{subject} {sender} {payload}")
+                mail_txt.append(extract_email_data(email)) # TODO Network maping method to config file
                 mail_ids.append(email_id)
 
             predictions = NeuralNet.classify(mail_txt)

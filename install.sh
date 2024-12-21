@@ -94,6 +94,12 @@ log_file = logs/SpamVanquisher.log
 max_size_mb = 10
 backup_count = 5
 check_interval = 60
+
+[EmailParts]
+use_subject = true
+use_sender = true
+use_recipient = false
+use_body = true
 EOF
 
 # Set permissions
