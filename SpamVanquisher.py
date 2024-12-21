@@ -2,6 +2,7 @@ import logging
 import threading
 import time
 import os
+import signal
 from lib.Daemon import DaemonThread
 from lib.config import config
 from lib.post import PostOffice
@@ -56,73 +57,73 @@ if __name__ == "__main__":
         scan_interval = scan_interval or config.SCAN_TIME
         logging.info("Training thread started.")
         logging.debug(f"sync_event ID: {id(sync_event)}")
-    
+
         while not stop_event.is_set():
             try:
                 NeuralNet.load_model()
                 logging.info("Model loaded for training.")
-    
+
                 # Define threads to fetch emails in parallel
                 def fetch_spam():
                     nonlocal Spam
                     Spam = POBox.fetch_emails(spam_learn)
-    
+
                 def fetch_ham():
                     nonlocal Ham
                     Ham = POBox.fetch_emails(ham_learn)
-    
+
                 Spam, Ham = [], []
                 spam_fetch_thread = threading.Thread(target=fetch_spam, name="FetchSpam")
                 ham_fetch_thread = threading.Thread(target=fetch_ham, name="FetchHam")
-    
+
                 spam_fetch_thread.start()
                 ham_fetch_thread.start()
-    
+
                 spam_fetch_thread.join()
                 ham_fetch_thread.join()
-    
+
                 logging.info(f"Fetched {len(Spam)} spam emails and {len(Ham)} ham emails.")
-    
+
                 # Prepare labels
                 SpamLabels = [1] * len(Spam)
                 HamLabels = [0] * len(Ham)
-    
+
                 # Train the neural network
                 logging.info("Starting neural network training.")
                 NeuralNet.train(Spam, labels=SpamLabels)
                 logging.info(f"Spam training completed: {len(Spam)} processed.")
-    
+
                 NeuralNet.train(Ham, labels=HamLabels)
                 logging.info(f"Ham training completed: {len(Ham)} processed.")
-    
+
                 # Save the trained model
                 NeuralNet.save_model()
                 logging.info("Model saved successfully.")
-    
+
                 # Notify classification task that training is complete
                 sync_event.set()
                 logging.debug("Thread sync event set.")
-    
+
                 # Move processed training data in parallel
                 logging.info("Starting bulk move operations for training data.")
                 spam_move_thread = threading.Thread(target=bulk_move, args=(Spam, spam_learn, spam_folder), name="SpamBulkMove")
                 ham_move_thread = threading.Thread(target=bulk_move, args=(Ham, ham_learn, ham_folder), name="HamBulkMove")
-    
+
                 spam_move_thread.start()
                 ham_move_thread.start()
-    
+
                 spam_move_thread.join()
                 ham_move_thread.join()
                 logging.info("All bulk move operations completed.")
-    
+
                 # Wait before retraining
                 logging.info(f"Finished processing training data. Waiting {scan_interval} seconds to retrain.")
                 time.sleep(scan_interval)
                 sync_event.clear()
-    
+
             except Exception as e:
                 logging.error(f"An error occurred in the training loop: {e}", exc_info=True)
-    
+
         logging.info("Stop called! Shutting Trainer thread down.")
 
 
@@ -185,11 +186,19 @@ if __name__ == "__main__":
     TrainingDaemon.start()
     OfficeDaemon.start()
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logging.info("Recieved KeyboardInterrupt")
+    def graceful_shutdown(signum, _frame):
+        logging.info(f"Received signal {signum}, shutting down gracefully.")
         StopEvent.set()
 
-    logging.info("MainThread shutting down!")
+    # Register signal handler for SIGTERM
+    signal.signal(signal.SIGTERM, graceful_shutdown)
+
+    try:
+        logging.info("Service is running.")
+        while not StopEvent.is_set():
+            time.sleep(1)  # The main work loop, running until StopEvent is set
+    except KeyboardInterrupt:
+        logging.info("Received KeyboardInterrupt, shutting down gracefully.")
+        StopEvent.set()
+
+    logging.info("Service stopped.")
