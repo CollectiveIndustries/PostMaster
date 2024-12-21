@@ -10,7 +10,7 @@ from .config import config
 
 class PostOffice():
     def __init__(self, event: threading.Event):
-        logging.info("Initializing PostOffice class and loading configuration.")
+        logging.info("Initializing PostOffice.")
 
         # Email settings
         self.email = config.EMAIL_ADDRESS
@@ -22,7 +22,7 @@ class PostOffice():
 
     def connect(self, mailbox: str, max_retries: int = 5, retry_interval: int = 30):
         """Connects to the IMAP server and selects the mailbox."""
-        logging.info(f"Attempting to connect to the IMAP server and access mailbox '{mailbox}'.")
+        logging.debug(f"Attempting to connect to the IMAP server and access mailbox '{mailbox}'.")
         mail = None
         attempts = 0
         while attempts < max_retries:
@@ -30,13 +30,13 @@ class PostOffice():
                 mail = imaplib.IMAP4_SSL(self.url, self.port)
                 mail.login(self.email, self.password)
                 mail.select(mailbox)
-                logging.info(f"Successfully connected to mailbox '{mailbox}'.")
+                logging.debug(f"Successfully connected to mailbox '{mailbox}'.")
                 return mail
             except (socket.gaierror, imaplib.IMAP4.error) as e:
                 logging.error(f"IMAP connection error (attempt {attempts + 1}): {e}")
                 time.sleep(retry_interval)
                 attempts += 1
-        logging.error("Max retries reached. Exiting...")
+        logging.critical("Max retries reached. Exiting...")
         sys.exit(1)
 
     def fetch_emails(self, mailbox: str) -> list:

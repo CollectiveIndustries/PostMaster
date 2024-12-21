@@ -16,11 +16,10 @@ def bulk_move(email_list, src_folder, dest_folder):
         email_id = email[0]  # Extract email_id from the tuple
         try:
             POBox.move(src_folder, dest_folder, str(email_id))
-            logging.debug(f"Email {email_id} moved from {src_folder} to {dest_folder}.")
         except Exception as e:
             logging.error(f"Failed to move email {email_id}: {e}")
         
-                # Log progress every 100 emails
+        # Log progress every 100 emails
         if index % 100 == 0:
             logging.info(f"Progress: {index}/{total_mail} emails moved.")
     logging.info(f"Bulk move completed. {total_mail} emails processed from {src_folder} to {dest_folder}.")

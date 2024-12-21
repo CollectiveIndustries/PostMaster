@@ -44,7 +44,7 @@ class conf:
         logging.root.addHandler(file_handler)
         logging.root.setLevel(getattr(logging, self.LOG_LEVEL, logging.INFO))
 
-        logging.info("Configuration settings loaded.")
+        logging.info(f"Configuration settings loaded from {config_file}.")
 
 # Argument parsing to allow for custom config file path
 def parse_args():
