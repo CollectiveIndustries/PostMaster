@@ -99,13 +99,13 @@ class PostOffice():
 
     def move(self, source_folder, destination_folder, email_id: str):
         """Moves an email from one folder to another."""
-        logging.info(f"Moving email '{int(email_id)}' from '{source_folder}' to '{destination_folder}'.")
+        logging.debug(f"Moving email '{int(email_id)}' from '{source_folder}' to '{destination_folder}'.")
         mail = self.connect(source_folder)
         result = mail.copy(str(email_id), destination_folder)
         if result[0] == "OK":
             mail.store(str(email_id), '+FLAGS', '\\Deleted')
             mail.expunge()
-            logging.info(f"Email '{int(email_id)}' moved successfully.")
+            logging.debug(f"Email '{int(email_id)}' moved successfully.")
         else:
             logging.error(f"Failed to move email '{int(email_id)}'.")
         mail.close()

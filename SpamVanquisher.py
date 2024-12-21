@@ -8,15 +8,21 @@ from lib.post import PostOffice
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
 
-def process_mail(email_list, src_folder, dest_folder):
-    logging.info(f"Moving {len(email_list)} emails from {src_folder} to {dest_folder}")
-    for email in email_list:
+def bulk_move(email_list, src_folder, dest_folder):
+    total_mail = len(email_list)
+    logging.info(f"Moving {total_mail} emails from {src_folder} to {dest_folder}")
+    for index, email in enumerate(email_list, start=1):
         email_id = email[0]  # Extract email_id from the tuple
         try:
             POBox.move(src_folder, dest_folder, str(email_id))
             logging.debug(f"Email {email_id} moved from {src_folder} to {dest_folder}.")
         except Exception as e:
             logging.error(f"Failed to move email {email_id}: {e}")
+        
+                # Log progress every 100 emails
+        if index % 100 == 0:
+            logging.info(f"Progress: {index}/{total_mail} emails moved.")
+    logging.info(f"Bulk move completed. {total_mail} emails processed from {src_folder} to {dest_folder}.")
 
 # Usage Example
 if __name__ == "__main__":
@@ -55,9 +61,9 @@ if __name__ == "__main__":
             Spam = POBox.fetch_emails(spam_learn)
             SpamLabels = [1] * len(Spam)
             logging.info("Starting NeuralNetwork training")
-
             NeuralNet.train(Spam,labels=SpamLabels)
             logging.info(f"Spam Training completed: {len(Spam)} processed.")
+            
             Ham = POBox.fetch_emails(ham_learn)
             HamLabels = [0] * len(Ham)
             NeuralNet.train(Ham,HamLabels)
@@ -70,8 +76,23 @@ if __name__ == "__main__":
             logging.debug(f"Thread Sync event set")
 
             logging.info("Moving Trained Emails.")
-            process_mail(Spam,spam_learn,spam_folder)
-            process_mail(Ham,ham_learn,ham_folder)
+            #bulk_move(Spam,spam_learn,spam_folder)
+            #bulk_move(Ham,ham_learn,ham_folder)
+
+            # Define threads for spam_learn and ham_learn
+            spam_thread = threading.Thread(target=bulk_move, args=(Spam,spam_learn,spam_folder), name="SpamBulkMove")
+            ham_thread = threading.Thread(target=bulk_move, args=(Ham,ham_learn,ham_folder), name="HamBulkMove")
+
+            # Start the threads
+            spam_thread.start()
+            ham_thread.start()
+
+            # Wait for both threads to finish
+            spam_thread.join()
+            ham_thread.join()
+
+            logging.info("All bulk move operations completed.")
+
             logging.info(f"Finished moving training data. wating {scan_interval} seconds to retrain.")
             time.sleep(scan_interval)
             sync_event.clear()
@@ -86,15 +107,16 @@ if __name__ == "__main__":
             logging.info("Classification task waiting for training.")
             sync_event.wait()  # Wait for the training task to complete
             logging.info("Classification task started after training.")
-            
+
             # Load the trained model
             NeuralNet.load_model()
-            logging.info("Model loaded for classification.")
+            logging.info(f"Model loaded for classification. fetching new mail from {config.INBOX}")
 
             emails_to_classify = POBox.fetch_emails(config.INBOX)
             mail_txt = []
             mail_ids = []
 
+            logging.info("Mail fetched running Classification.")
             for email in emails_to_classify:
                 email_id, subject, sender, recipient, payload = email
                 # Preprocess email data (e.g., combine fields for input to model)
@@ -102,9 +124,10 @@ if __name__ == "__main__":
                 mail_ids.append(email_id)
 
             predictions = NeuralNet.classify(mail_txt)
+            logging.info(f"{len(emails_to_classify)} emails classified.")
 
             for email_id, classification in zip(mail_ids, predictions):
-                logging.info(f"Email ID {email_id} classified as {'Spam' if classification > 0.5 else 'Ham'}.")
+                logging.debug(f"Email ID {email_id} classified as {'Spam' if classification > 0.5 else 'Ham'}.")
                 label = 'Spam' if classification > 0.5 else 'Ham'
                 if label == "Spam":
                     destination_folder = config.SPAM_FOLDER
@@ -114,7 +137,7 @@ if __name__ == "__main__":
                 # Move the email to the appropriate folder
                 POBox.move(config.INBOX, destination_folder, email_id)
         
-            logging.info("Classification task completed.")
+            logging.info(f"{len(mail_ids)} emails sorted and moved. Waiting for next scan event")
             time.sleep(scan_interval)
         logging.info("Stop Called! shutting PostMan thread down!")
 
