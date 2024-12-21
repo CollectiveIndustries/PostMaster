@@ -97,13 +97,13 @@ class PostOffice():
                 payload = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
         return payload
 
-    def move(self, source_folder, destination_folder, email_id):
+    def move(self, source_folder, destination_folder, email_id: str):
         """Moves an email from one folder to another."""
         logging.info(f"Moving email '{int(email_id)}' from '{source_folder}' to '{destination_folder}'.")
         mail = self.connect(source_folder)
-        result = mail.copy(int(email_id), destination_folder)
+        result = mail.copy(str(email_id), destination_folder)
         if result[0] == "OK":
-            mail.store(email_id, '+FLAGS', '\\Deleted')
+            mail.store(str(email_id), '+FLAGS', '\\Deleted')
             mail.expunge()
             logging.info(f"Email '{int(email_id)}' moved successfully.")
         else:

@@ -12,7 +12,7 @@ def process_mail(email_list, src_folder, dest_folder):
     for email in email_list:
         email_id = email[0]  # Extract email_id from the tuple
         try:
-            POBox.move(src_folder, dest_folder, email_id)
+            POBox.move(src_folder, dest_folder, str(email_id))
             logging.debug(f"Email {email_id} moved from {src_folder} to {dest_folder}.")
         except Exception as e:
             logging.error(f"Failed to move email {email_id}: {e}")
@@ -36,16 +36,18 @@ if __name__ == "__main__":
             NeuralNet.load_model()
             Spam = POBox.fetch_emails(spam_learn)
             SpamLabels = [1] * len(Spam)
+            logging.info("Starting NeuralNetwork training")
             NeuralNet.train(Spam,labels=SpamLabels)
             logging.info(f"Spam Training completed: {len(Spam)} processed.")
             Ham = POBox.fetch_emails(ham_learn)
             HamLabels = [0] * len(Ham)
             NeuralNet.train(Ham,HamLabels)
-            logging.info(f"Ham Training completed: {len(Ham)} processed.")
+            logging.info(f"Ham Training completed: {len(Ham)} processed. saving model")
             NeuralNet.save_model()
+            logging.info("Model saved.")
 
             sync_event.set()   # Notify the classification task that training is done
-            logging.debug(f"Training event set()")
+            logging.debug(f"Thread Sync event set")
 
             logging.info("Moving Trained Emails.")
             process_mail(Spam,spam_learn,spam_folder)
