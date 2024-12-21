@@ -29,7 +29,8 @@ if __name__ == "__main__":
     def LogRotate(event: threading.Event):
         Logger.run()
 
-    def Trainer(event: threading.Event, stop_event: threading.Event, scan_interval: int = 300):
+    def Trainer(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
+        scan_interval = scan_interval or config.SCAN_TIME
         while not stop_event.is_set():        
             logging.info("Training task started.")
             NeuralNet.load_model()
@@ -43,20 +44,22 @@ if __name__ == "__main__":
             logging.info(f"Ham Training completed: {len(Ham)} processed.")
             NeuralNet.save_model()
 
-            event.set()   # Notify the classification task that training is done
+            sync_event.set()   # Notify the classification task that training is done
             logging.debug(f"Training event set()")
 
             logging.info("Moving Trained Emails.")
             process_mail(Spam,spam_learn,spam_folder)
             process_mail(Ham,ham_learn,ham_folder)
+            sync_event.clear()
             time.sleep(scan_interval)
         logging.info("Stop Called! shutting Trainer thread down!")
 
 
-    def PostMan(event: threading.Event, stop_event: threading.Event, scan_interval: int = 300):
+    def PostMan(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
+        scan_interval = scan_interval or config.SCAN_TIME
         while not stop_event.is_set():
             logging.info("Classification task waiting for training.")
-            event.wait()  # Wait for the training task to complete
+            sync_event.wait()  # Wait for the training task to complete
             logging.info("Classification task started after training.")
             
             # Load the trained model
@@ -91,15 +94,17 @@ if __name__ == "__main__":
         logging.info("Stop Called! shutting PostMan thread down!")
 
     StopEvent = threading.Event()
+    ProcEvent = threading.Event()
+
     ScanTime = int(config.SCAN_TIME)
 
     Logger = LogRotation(StopEvent)
-    POBox = PostOffice()
+    POBox = PostOffice(StopEvent)
     NeuralNet = MailNet()
 
     LogDaemon = DaemonThread(name="LogRotation", target=LogRotate)
-    TrainingDaemon = DaemonThread(name="Trainer", target=Trainer, args=(StopEvent, config.SCAN_TIME))
-    OfficeDaemon = DaemonThread(name="PostMan", target=PostMan, args=(StopEvent, config.SCAN_TIME))
+    TrainingDaemon = DaemonThread(name="Trainer", target=Trainer, args=(ProcEvent, StopEvent),)
+    OfficeDaemon = DaemonThread(name="PostMan", target=PostMan, args=(ProcEvent, StopEvent),)
 
     # Start all threads
     LogDaemon.start()

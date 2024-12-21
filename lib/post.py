@@ -4,11 +4,12 @@ import socket
 import time
 import email
 import sys
+import threading
 from email.header import decode_header
 from .config import config
 
 class PostOffice():
-    def __init__(self):
+    def __init__(self, event: threading.Event):
         logging.info("Initializing PostOffice class and loading configuration.")
 
         # Email settings
@@ -17,6 +18,7 @@ class PostOffice():
         self.url = config.IMAP_URL
         self.port = int(config.IMAP_PORT)
         self.inbox = config.INBOX
+        self._StopEvent = event
 
     def connect(self, mailbox: str, max_retries: int = 5, retry_interval: int = 30):
         """Connects to the IMAP server and selects the mailbox."""
@@ -48,6 +50,9 @@ class PostOffice():
         logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}'.")
         start_time = time.time()  # Record the start time for speed calculation
         for count, email_id in enumerate(email_ids, start=1):
+            if self._StopEvent.is_set():
+                logging.info("Stop signal received. Exiting")
+                return
             result, msg_data = mail.fetch(email_id, "(RFC822)")
             if result == "OK":
                 msg = email.message_from_bytes(msg_data[0][1])
@@ -71,7 +76,7 @@ class PostOffice():
 
                 logging.info(
                     f"Progress: {count}/{total_emails} emails fetched "
-                    f"({emails_per_second:.2f} emails/s). Estimated time to completion: {etc_formatted}"
+                    f"({emails_per_second:.2f} emails/s) Estimated time to completion: {etc_formatted}"
                 )
                 
         logging.info(f"Fetched {len(emails)} emails from mailbox '{mailbox}'.")
@@ -94,15 +99,15 @@ class PostOffice():
 
     def move(self, source_folder, destination_folder, email_id):
         """Moves an email from one folder to another."""
-        logging.info(f"Moving email '{email_id.decode()}' from '{source_folder}' to '{destination_folder}'.")
+        logging.info(f"Moving email '{int(email_id)}' from '{source_folder}' to '{destination_folder}'.")
         mail = self.connect(source_folder)
-        result = mail.copy(email_id, destination_folder)
+        result = mail.copy(int(email_id), destination_folder)
         if result[0] == "OK":
             mail.store(email_id, '+FLAGS', '\\Deleted')
             mail.expunge()
-            logging.info(f"Email '{email_id.decode()}' moved successfully.")
+            logging.info(f"Email '{int(email_id)}' moved successfully.")
         else:
-            logging.error(f"Failed to move email '{email_id.decode()}'.")
+            logging.error(f"Failed to move email '{int(email_id)}'.")
         mail.close()
         mail.logout()
 
