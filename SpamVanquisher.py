@@ -57,7 +57,7 @@ if __name__ == "__main__":
         logging.debug(f"sync_event ID: {id(sync_event)}")
         while not stop_event.is_set():        
             NeuralNet.load_model()
-
+# TODO Spawn fetch in seperate threads to pull boxes for training in parallel
             Spam = POBox.fetch_emails(spam_learn)
             SpamLabels = [1] * len(Spam)
             logging.info("Starting NeuralNetwork training")
