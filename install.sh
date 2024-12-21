@@ -33,7 +33,7 @@ Description=Spam Vanquisher Service
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 $SCRIPT_PATH
+ExecStart=/usr/bin/python3 $SCRIPT_PATH --config $CONFIG_PATH
 WorkingDirectory=/opt/spamvanquisher
 StandardOutput=file:$LOG_FILE
 StandardError=file:$LOG_FILE

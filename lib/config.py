@@ -1,5 +1,6 @@
 import configparser
 import logging
+import argparse
 
 class conf:
     def __init__(self, config_file="config.ini"):
@@ -45,4 +46,14 @@ class conf:
 
         logging.info("Configuration settings loaded.")
 
-config = conf()
+# Argument parsing to allow for custom config file path
+def parse_args():
+    parser = argparse.ArgumentParser(description="Spam Vanquisher Configuration")
+    parser.add_argument('--config', type=str, help="Path to the config.ini file", default="config.ini")
+    return parser.parse_args()
+
+# Parse arguments
+args = parse_args()
+
+# Pass the config file path to the conf class
+config = conf(config_file=args.config)
