@@ -133,10 +133,24 @@ class PostOffice():
                 logging.info("Stop signal received. Exiting")
                 break
 
-            result, raw_imap_msg_data = mail.fetch(email_id, "(RFC822)")
-
-            if result != "OK" or not raw_imap_msg_data:
-                logging.warning(f"Failed to fetch email with UID {email_id}.")
+            retry_count = 3
+            for attempt in range(retry_count):
+                result, raw_imap_msg_data = mail.fetch(email_id, "(RFC822)")
+                if raw_imap_msg_data[0] is not None:
+                    break
+                    # Validate raw_imap_msg_data[0] format
+                time.sleep(2)  # Wait 2 seconds before retrying
+            
+            if not raw_imap_msg_data or raw_imap_msg_data[0] is None:
+                logging.error(f"Failed to fetch email UID {email_id} after {retry_count} attempts: {raw_imap_msg_data}")
+                continue
+            
+            if not isinstance(raw_imap_msg_data[0], tuple):
+                logging.error(f"Invalid data format for email UID {email_id}. Expected a tuple but got: {type(raw_imap_msg_data[0])}")
+                continue
+            
+            if result != "OK":
+                logging.warning(f"Fetch result for email UID {email_id} was not 'OK'. Result: {result}")
                 continue
 
             try:
