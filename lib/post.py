@@ -7,6 +7,7 @@ import sys
 import threading
 from email.header import decode_header
 from .config import config
+from .helper import log_progress
 
 class PostOffice():
     def __init__(self, event: threading.Event):
@@ -42,7 +43,7 @@ class PostOffice():
     def fetch_emails(self, mailbox: str) -> list:
         """Fetches emails from the specified mailbox."""
         mail = self.connect(mailbox)
-        result, data = mail.search(None, "ALL")
+        result, data = mail.uid('search', None, "ALL")
         email_ids = data[0].split()
         emails = []
         total_emails = len(email_ids)
@@ -64,20 +65,7 @@ class PostOffice():
                 emails.append((email_id.decode(), subject, sender, recipient, payload))
             # Log progress every 100 emails
             if count % 100 == 0 or count == total_emails:
-                elapsed_time = time.time() - start_time
-                emails_per_second = count / elapsed_time if elapsed_time > 0 else 0
-                remaining_emails = total_emails - count
-                estimated_time_remaining = (
-                    remaining_emails / emails_per_second if emails_per_second > 0 else float('inf')
-                )
-                etc_formatted = time.strftime(
-                    "%H:%M:%S", time.gmtime(estimated_time_remaining)
-                )
-
-                logging.info(
-                    f"Progress: {count}/{total_emails} emails fetched "
-                    f"({emails_per_second:.2f} emails/s) Estimated time to completion: {etc_formatted}"
-                )
+               log_progress(count,total_emails,start_time)
                 
         logging.info(f"Fetched {len(emails)} emails from mailbox '{mailbox}'.")
         mail.close()
@@ -98,7 +86,7 @@ class PostOffice():
         return payload
 
     def move(self, source_folder, destination_folder, email_id: str):
-        """Moves an email from one folder to another."""
+        """Moves a single email from one folder to another."""
         logging.debug(f"Moving email '{int(email_id)}' from '{source_folder}' to '{destination_folder}'.")
         mail = self.connect(source_folder)
         result = mail.copy(str(email_id), destination_folder)
@@ -108,6 +96,38 @@ class PostOffice():
             logging.debug(f"Email '{int(email_id)}' moved successfully.")
         else:
             logging.error(f"Failed to move email '{int(email_id)}'.")
+        mail.close()
+        mail.logout()
+
+    def bulk_move(self, source_folder, destination_folder, email_ids: list):
+        """Moves multiple emails from one folder to another in bulk."""
+        logging.debug(f"Starting bulk move of {len(email_ids)} emails from '{source_folder}' to '{destination_folder}'.")
+
+        # Ensure email IDs are strings for IMAP operations
+        email_ids_str = ",".join(map(str, email_ids))
+
+        # Connect to the source folder
+        mail = self.connect(source_folder)
+
+        # Copy emails to the destination folder
+        result, copy_response = mail.uid("COPY", email_ids_str, destination_folder)
+        if result == "OK":
+            logging.debug(f"Copied {len(email_ids)} emails to '{destination_folder}' successfully.")
+
+            # Mark emails as deleted in the source folder
+            result, store_response = mail.uid("STORE", email_ids_str, "+FLAGS", "(\\Deleted)")
+            if result == "OK":
+                logging.debug(f"Marked {len(email_ids)} emails as deleted in '{source_folder}'.")
+
+                # Expunge to permanently delete emails from the source folder
+                mail.expunge()
+                logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{source_folder}' to '{destination_folder}'.")
+            else:
+                logging.error(f"Failed to mark emails as deleted: {store_response}")
+        else:
+            logging.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")
+
+        # Close and logout
         mail.close()
         mail.logout()
 
