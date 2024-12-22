@@ -35,13 +35,15 @@ if __name__ == "__main__":
     ham_learn = config.HAM_LEARN
 
     def LogRotate(stop_event: threading.Event):
+        log_file = config.LOG_FILE
+
         logging.info("Log rotation thread started. Monitoring file: %s", log_file)
         while not stop_event.is_set():
             try:
                 if os.path.exists(log_file):
                     file_size = os.path.getsize(log_file)
                     logging.debug("Current log file size: %d bytes", file_size)
-                    if file_size >= config.MAX_SIZE_MB:
+                    if file_size >= config.MAX_SIZE:
                         logging.warning("Log file size exceeded threshold: %s", log_file)
                         Logger.rotate()
                 else:
@@ -177,7 +179,7 @@ if __name__ == "__main__":
     POBox = PostOffice(StopEvent)
     NeuralNet = MailNet()
 
-    LogDaemon = DaemonThread(name="LogRotation", target=LogRotate, args=(StopEvent),)
+    LogDaemon = DaemonThread(name="LogRotation", target=LogRotate, args=(StopEvent,),)
     TrainingDaemon = DaemonThread(name="Trainer", target=Trainer, args=(ProcEvent, StopEvent),)
     OfficeDaemon = DaemonThread(name="PostMan", target=PostMan, args=(ProcEvent, StopEvent),)
 

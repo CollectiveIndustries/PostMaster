@@ -28,7 +28,7 @@ class conf:
         # Log Settings
         self.LOG_FILE = CONFIG.get('Logs', 'log_file')
         self.LOG_LEVEL = CONFIG.get('Logs', 'log_level', fallback="INFO").upper()
-        self.MAX_SIZE_MB = int(CONFIG.get('Logs', 'max_size_mb', fallback=10))
+        self.MAX_SIZE = int(CONFIG.get('Logs', 'max_size_mb', fallback=10)) * 1024 * 1024
         self.BACKUP_COUNT = int(CONFIG.get('Logs', 'backup_count', fallback=5))
         self.CHECK_INTERVAL = int(CONFIG.get('Logs', 'check_interval', fallback=60))
         

@@ -15,7 +15,6 @@ class LogRotation(threading.Thread):
         super().__init__(name="LogRotationThread")
         self.daemon = True
         self.log_file = config.LOG_FILE
-        self.max_size_mb = config.MAX_SIZE_MB * 1024 * 1024  # Convert to bytes
         self.backup_count = config.BACKUP_COUNT
         self.check_interval = config.CHECK_INTERVAL
         logging.info("Log rotation thread intilized.")
