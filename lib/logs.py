@@ -4,7 +4,7 @@ import os
 import time
 import shutil
 import gzip
-from datetime import datetime, timedelta
+from datetime import datetime
 from .config import config
 
 class LogRotation(threading.Thread):

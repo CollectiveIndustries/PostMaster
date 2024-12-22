@@ -17,7 +17,7 @@ def bulk_move(email_list, src_folder, dest_folder):
     logging.info(f"Moving {total_mail} emails from {src_folder} to {dest_folder}")
     for index, email in enumerate(email_list, start=1):
         email_ids.append(email[0])  # Extract email_id from the tuple
-        
+
     try:
         POBox.bulk_move(src_folder, dest_folder, email_ids)
     except Exception as e:
@@ -45,9 +45,9 @@ if __name__ == "__main__":
             try:
                 if os.path.exists(log_file):
                     file_size = os.path.getsize(log_file)
-                    logging.debug("Current log file size: %d bytes", file_size)
+                    logging.debug(f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}")
                     if file_size >= config.MAX_SIZE:
-                        logging.warning("Log file size exceeded threshold: %s", log_file)
+                        logging.warning(f"Log file size exceeded threshold: {log_file}")
                         Logger.rotate()
                 else:
                     with open(log_file, 'w') as log_file:
@@ -111,8 +111,8 @@ if __name__ == "__main__":
 
                 # Move processed training data in parallel
                 logging.info("Starting bulk move operations for training data.")
-                spam_move_thread = threading.Thread(target=bulk_move, args=(Spam, spam_learn, spam_folder), name="SpamBulkMove")
-                ham_move_thread = threading.Thread(target=bulk_move, args=(Ham, ham_learn, ham_folder), name="HamBulkMove")
+                spam_move_thread = threading.Thread(target=bulk_move, args=(Spam, spam_learn, spam_folder), name="Trainer-SpamBulkMove")
+                ham_move_thread = threading.Thread(target=bulk_move, args=(Ham, ham_learn, ham_folder), name="Trainer-HamBulkMove")
 
                 spam_move_thread.start()
                 ham_move_thread.start()
