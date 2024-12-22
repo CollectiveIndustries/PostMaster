@@ -135,3 +135,52 @@ class PostOffice():
             else:
                 header += part
         return header
+
+
+class Email:
+    """
+    A class representing an email with attributes for subject, sender, recipient, and payload.
+    """
+    def __init__(self, subject, sender, recipient, payload):
+        """
+        Initialize an Email object.
+
+        :param subject: The subject of the email
+        :param sender: The sender of the email
+        :param recipient: The recipient of the email
+        :param payload: The body or content of the email
+        """
+        self.subject = subject
+        self.sender = sender
+        self.recipient = recipient
+        self.payload = payload
+
+    def __repr__(self):
+        """
+        Return a string representation of the Email object for debugging.
+        """
+        return (
+            f"Email(subject={self.subject!r}, sender={self.sender!r}, "
+            f"recipient={self.recipient!r}, payload={len(self.payload)} characters)"
+        )
+
+    def to_string(self, include_subject=True, include_sender=True, include_recipient=False, include_payload=True):
+        """
+        Convert the email object to a formatted string based on included fields.
+
+        :param include_subject: Whether to include the subject in the string
+        :param include_sender: Whether to include the sender in the string
+        :param include_recipient: Whether to include the recipient in the string
+        :param include_payload: Whether to include the payload in the string
+        :return: A formatted string representation of the email
+        """
+        components = []
+        if include_subject:
+            components.append(self.subject)
+        if include_sender:
+            components.append(self.sender)
+        if include_recipient:
+            components.append(self.recipient)
+        if include_payload:
+            components.append(self.payload)
+        return " ".join(components)
