@@ -30,8 +30,17 @@ def log_progress(index, total, start_time):
     avg_time_per_item = elapsed_time / index if index > 0 else 0
     remaining_items = total - index
     etc = remaining_items * avg_time_per_item
+
+    # Format the timedelta into DD:HH:MM:SS
+    days = etc // (24 * 3600)
+    hours = (etc % (24 * 3600)) // 3600
+    minutes = (etc % 3600) // 60
+    seconds = etc % 60
+
+    # Format the result
+    formatted_etc = f"{days:02}:{hours:02}:{minutes:02}:{seconds:02}"
     logging.info(
         f"Processed {index}/{total} items "
         f"({index / total:.2%} complete). "
-        f"Estimated time to completion: {etc:.2f} seconds."
+        f"Estimated time till completion: {formatted_etc}"
     )
