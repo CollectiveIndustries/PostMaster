@@ -1,6 +1,7 @@
 from .config import config
 import logging
 import time
+import datetime
 
 def extract_email_data(email: tuple):
     """
@@ -31,14 +32,19 @@ def log_progress(index, total, start_time):
     remaining_items = total - index
     etc = remaining_items * avg_time_per_item
 
-    # Format the timedelta into DD:HH:MM:SS
-    days = etc // (24 * 3600)
-    hours = (etc % (24 * 3600)) // 3600
-    minutes = (etc % 3600) // 60
-    seconds = etc % 60
+    # Format the timedelta into days, hours, minutes, and seconds
+    days = int(etc // (24 * 3600))
+    hours = int((etc % (24 * 3600)) // 3600)
+    minutes = int((etc % 3600) // 60)
+    seconds = int(etc % 60)
 
-    # Format the result
-    formatted_etc = f"{days:02}:{hours:02}:{minutes:02}:{seconds:02}"
+    # Build the formatted output
+    if days > 0:
+        formatted_etc = f"{days} days, {hours:02}:{minutes:02}:{seconds:02}"
+    else:
+        formatted_etc = f"{hours:02}:{minutes:02}:{seconds:02}"
+
+    # Log the progress and estimated time to completion
     logging.info(
         f"Processed {index}/{total} items "
         f"({index / total:.2%} complete). "

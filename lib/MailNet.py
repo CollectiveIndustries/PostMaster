@@ -28,13 +28,6 @@ class MailNet():
         """Train the spam filter model."""
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 
-        # Extract Email Data
-        # text[1]: Subject
-        # text[2]: Sender
-        # text[3]: Recipient
-        # text[4]: Body
-        # TODO Network maping method to config file
-
         text = [ extract_email_data(email) for email in email_text]
 
         # Tokenizer fit
@@ -55,7 +48,7 @@ class MailNet():
         # Training
         self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
 
-    def classify(self, texts: list):
+    def classify(self, texts: list) -> list[int]:
         """Classify emails as spam or ham (0 or 1)."""
         if not self.model:
             logging.error("Model is not trained or loaded. Please train or load a model before classification.")

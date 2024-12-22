@@ -21,7 +21,7 @@ class PostOffice():
         self.inbox = config.INBOX
         self._StopEvent = event
 
-    def connect(self, mailbox: str, max_retries: int = 5, retry_interval: int = 30):
+    def connect(self, mailbox: str, max_retries: int = 5, retry_interval: int = 30) -> imaplib.IMAP4_SSL:
         """Connects to the IMAP server and selects the mailbox."""
         logging.debug(f"Attempting to connect to the IMAP server and access mailbox '{mailbox}'.")
         mail = None
@@ -56,23 +56,30 @@ class PostOffice():
                 return
             result, msg_data = mail.fetch(email_id, "(RFC822)")
             if result == "OK":
-                msg = email.message_from_bytes(msg_data[0][1])
+                try:
+                    msg = email.message_from_bytes(msg_data[0][1])
+                except TypeError as t:
+                    logging.error(f"Error: MailID: {email_id} is None or improperly formatted: {t}")
+                    logging.debug(f"msg_data = {msg_data}")
+                    continue # skip adding item to the emails[list]
+                finally: # Always check the progress
+                    # Log progress every 100 emails
+                    if count % 100 == 0 or count == total_emails:
+                       log_progress(count,total_emails,start_time)
+
                 subject = self._decode_email_header(msg.get("Subject", ""))
                 sender = self._decode_email_header(msg.get("From", ""))
                 recipient = self._decode_email_header(msg.get("To", ""))
                 payload = self._extract_payload(msg)
 
                 emails.append((email_id.decode(), subject, sender, recipient, payload))
-            # Log progress every 100 emails
-            if count % 100 == 0 or count == total_emails:
-               log_progress(count,total_emails,start_time)
                 
         logging.info(f"Fetched {len(emails)} emails from mailbox '{mailbox}'.")
         mail.close()
         mail.logout()
         return emails
 
-    def _extract_payload(self, msg):
+    def _extract_payload(self, msg) -> str:
         """Extracts payload from an email message."""
         logging.debug("Extracting payload from message.")
         payload = ""
@@ -131,7 +138,7 @@ class PostOffice():
         mail.close()
         mail.logout()
 
-    def _decode_email_header(self, header_value):
+    def _decode_email_header(self, header_value) -> str:
         if not header_value:
             return "(Unknown)"
 
