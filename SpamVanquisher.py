@@ -5,24 +5,23 @@ import os
 import signal
 from lib.Daemon import DaemonThread
 from lib.config import config
-from lib.post import PostOffice
+from lib.post import PostOffice, Email
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
 from lib.helper import extract_email_data, log_progress
 
-def bulk_move(email_list, src_folder, dest_folder):
+def bulk_move(email_list: list[Email], src_folder, dest_folder):
     total_mail = len(email_list)
     start_time = time.time()
     email_ids = []
     logging.info(f"Moving {total_mail} emails from {src_folder} to {dest_folder}")
     for index, email in enumerate(email_list, start=1):
-        email_ids.append(email[0])  # Extract email_id from the tuple
-
+        email_ids.append(email.uid)  # Extract email_id from the Email Object
     try:
         POBox.bulk_move(src_folder, dest_folder, email_ids)
     except Exception as e:
         logging.error(f"Failed to move email {email_ids}: {e}")
-        
+
         # Log progress every 100 emails
         if index % 100 == 0 or index == total_mail:
             log_progress(index,total_mail, start_time)
@@ -144,39 +143,33 @@ if __name__ == "__main__":
             NeuralNet.load_model()
             logging.info(f"Model loaded for classification. fetching new mail from {config.INBOX}")
 
-            emails_to_classify = POBox.fetch_emails(config.INBOX)
-            mail_txt = []
-            mail_ids = []
+            email_que = POBox.fetch_emails(config.INBOX)
 
             logging.info("Mail fetched running Classification.")
-            for email in emails_to_classify:
-                email_id, subject, sender, recipient, payload = email
-                # Preprocess email data (e.g., combine fields for input to model)
-                mail_txt.append(extract_email_data(email)) 
-                mail_ids.append(email_id)
+            for email in email_que:
+                email.classification = NeuralNet.classify(extract_email_data(email))
 
-            predictions = NeuralNet.classify(mail_txt)
-            logging.info(f"{len(emails_to_classify)} emails classified.")
-            logging.info(f"Sorting and moving {len(emails_to_classify)} emails.")
+            logging.info(f"{len(email_que)} emails classified.")
+            logging.info(f"Sorting and moving {len(email_que)} emails.")
 
-            total_emails = len(mail_ids)
+            total_emails = len(email_que)
             start_time = time.time()
 
-            for index, (email_id, classification) in enumerate(zip(mail_ids, predictions), start=1):
+            for index, mail in enumerate(email_que, start=1):
                 # Log classification for debugging
-                logging.debug(f"Email ID {email_id} classified as {'Spam' if classification > 0.5 else 'Ham'}.")
+                logging.debug(f"Email ID {mail.uid} classified as {'Spam' if mail.classification > 0.5 else 'Ham'}.")
 
-                label = 'Spam' if classification > 0.5 else 'Ham'
+                label = 'Spam' if mail.classification > 0.5 else 'Ham'
                 destination_folder = config.SPAM_FOLDER if label == "Spam" else config.HAM_FOLDER
 
                 # Move the email to the appropriate folder
-                POBox.move(config.INBOX, destination_folder, email_id)
+                POBox.move(config.INBOX, destination_folder, mail.uid)
 
                 # Log progress every 100 emails
                 if index % 100 == 0 or index == total_emails:
                     log_progress(index,total_emails,start_time)
-        
-            logging.info(f"{len(mail_ids)} emails sorted and moved. Waiting for next scan event")
+
+            logging.info(f"{len(email_que)} emails sorted and moved. Waiting for next scan event")
             time.sleep(scan_interval)
         logging.info("Stop Called! shutting PostMan thread down!")
 

@@ -1,20 +1,21 @@
+from __future__ import annotations  # Allows forward declarations
 from .config import config
 import logging
 import time
 
-def extract_email_data(email: tuple):
+def extract_email_data(email: Email):
     """
     Extracts data from the email based on configuration settings.
     """
     data = []
     if config.USE_SUBJECT:
-        data.append(email[0])
+        data.append(email.subject)
     if config.USE_SENDER:
-        data.append(email[1])
+        data.append(email.sender)
     if config.USE_RECIPIENT:
-        data.append(email[2])
+        data.append(email.recipient)
     if config.USE_BODY:
-        data.append(email[3])
+        data.append(email.payload)
     return " ".join(data)
 
 def log_progress(index, total, start_time):

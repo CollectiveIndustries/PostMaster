@@ -22,6 +22,7 @@ class Email:
         self.recipient = self.get_recipient(msg)
         self.payload = self.get_payload(msg)
         self.uid = uid
+        self.classification = None
 
     def get_subject(self, msg):
         # Extract subject from the message

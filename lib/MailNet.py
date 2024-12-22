@@ -8,7 +8,6 @@ import os
 from .config import config
 from .helper import extract_email_data
 
-
 class MailNet():
     def __init__(self, max_vocab_size=10000):
         self.max_vocab_size = max_vocab_size
@@ -47,14 +46,14 @@ class MailNet():
         # Training
         self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
 
-    def classify(self, texts: list) -> list[int]:
-        """Classify emails as spam or ham (0 or 1)."""
+    def classify(self, text: str) -> list[int]:
+        """Classify email as spam or ham (0 or 1)."""
         if not self.model:
             logging.error("Model is not trained or loaded. Please train or load a model before classification.")
             raise ValueError("Model is not trained or loaded. Please train or load a model before classification.")
-        X = self.preprocess_data(texts)
+        X = self.preprocess_data([text])
         predictions = self.model.predict(X)
-        return [1 if p > 0.5 else 0 for p in predictions]
+        return 1 if predictions[0] > 0.5 else 0
 
     def save_model(self, model_path=f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras"):
         """Save the trained model to disk."""
