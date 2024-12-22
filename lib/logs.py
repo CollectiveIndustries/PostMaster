@@ -1,7 +1,6 @@
 import threading
 import logging
 import os
-import time
 import shutil
 import gzip
 from datetime import datetime

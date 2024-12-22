@@ -1,7 +1,6 @@
 from .config import config
 import logging
 import time
-import datetime
 
 def extract_email_data(email: tuple):
     """
