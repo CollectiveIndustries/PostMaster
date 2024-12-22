@@ -9,6 +9,76 @@ from email.header import decode_header
 from .config import config
 from .helper import log_progress
 
+class Email:
+    def __init__(self, uid, raw_data):
+        # msg_data is the result of an IMAP fetch command
+        if not raw_data or not isinstance(raw_data, tuple):
+            raise ValueError("Invalid raw_data format. Expected a tuple.")
+        raw_email = raw_data[1]
+        msg = email.message_from_bytes(raw_email)
+
+        self.subject = self.get_subject(msg)
+        self.sender = self.get_sender(msg)
+        self.recipient = self.get_recipient(msg)
+        self.payload = self.get_payload(msg)
+        self.uid = uid
+
+    def get_subject(self, msg):
+        # Extract subject from the message
+        return self._decode_email_header(msg.get("Subject"))
+
+    def get_sender(self, msg):
+        return self._decode_email_header(msg.get("From"))
+
+    def get_recipient(self, msg):
+        return self._decode_email_header(msg.get("To"))
+
+    def get_payload(self, msg):
+        """
+        Extract the email payload (body of the email).
+        """
+        if msg.is_multipart():
+            # Combine all text/plain parts
+            payload = []
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    payload.append(
+                        part.get_payload(decode=True).decode(errors="ignore")
+                    )
+            return "\n".join(payload)
+        else:
+            # Single-part message
+            payload = msg.get_payload(decode=True)
+            return payload.decode("utf-8", errors="ignore") if payload else ""
+
+    def __repr__(self):
+        return f"Email(subject={self.subject}, sender={self.sender}, recipient={self.recipient}, uid={self.uid})"
+
+    def _decode_email_header(self, header_value) -> str:
+        if not header_value:
+            return "(Unknown)"
+
+        decoded_parts = decode_header(header_value)
+        header = ""
+
+        for part, encoding in decoded_parts:
+            if isinstance(part, bytes):
+                # Handle the 'unknown-8bit' encoding case
+                if encoding == 'unknown-8bit':
+                    encoding = 'utf-8'  # Fall back to 'utf-8' for 'unknown-8bit'
+
+                # Default to 'utf-8' if encoding is None
+                encoding = encoding or 'utf-8'
+
+                try:
+                    header += part.decode(encoding, errors='ignore')
+                except (LookupError, UnicodeDecodeError) as e:
+                    logging.error(f"Error decoding part with encoding {encoding}: {e}")
+                    header += part.decode('utf-8', errors='ignore')  # Fallback to utf-8
+            else:
+                header += part
+        return header
+
 class PostOffice():
     def __init__(self, event: threading.Event):
         logging.info("Initializing PostOffice.")
@@ -40,57 +110,50 @@ class PostOffice():
         logging.critical("Max retries reached. Exiting...")
         sys.exit(1)
 
-    def fetch_emails(self, mailbox: str) -> list:
+    def fetch_emails(self, mailbox: str) -> list[Email]:
         """Fetches emails from the specified mailbox."""
         mail = self.connect(mailbox)
         result, data = mail.uid('search', None, "ALL")
+
+        if result != "OK" or not data or not data[0]:
+            logging.warning(f"No emails found in mailbox '{mailbox}'.")
+            mail.close()
+            mail.logout()
+            return []
+
         email_ids = data[0].split()
-        emails = []
+        email_objs = []
         total_emails = len(email_ids)
 
         logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}'.")
         start_time = time.time()  # Record the start time for speed calculation
+
         for count, email_id in enumerate(email_ids, start=1):
             if self._StopEvent.is_set():
                 logging.info("Stop signal received. Exiting")
-                return
-            result, msg_data = mail.fetch(email_id, "(RFC822)")
-            if result == "OK":
-                try:
-                    msg = email.message_from_bytes(msg_data[0][1])
-                except TypeError as t:
-                    logging.error(f"Error: MailID: {email_id} is None or improperly formatted: {t}")
-                    logging.debug(f"msg_data = {msg_data}")
-                    continue # skip adding item to the emails[list]
-                finally: # Always check the progress
-                    # Log progress every 100 emails
-                    if count % 100 == 0 or count == total_emails:
-                       log_progress(count,total_emails,start_time)
+                break
 
-                subject = self._decode_email_header(msg.get("Subject", ""))
-                sender = self._decode_email_header(msg.get("From", ""))
-                recipient = self._decode_email_header(msg.get("To", ""))
-                payload = self._extract_payload(msg)
+            result, raw_imap_msg_data = mail.fetch(email_id, "(RFC822)")
 
-                emails.append((email_id.decode(), subject, sender, recipient, payload))
-                
-        logging.info(f"Fetched {len(emails)} emails from mailbox '{mailbox}'.")
+            if result != "OK" or not raw_imap_msg_data:
+                logging.warning(f"Failed to fetch email with UID {email_id}.")
+                continue
+
+            try:
+                email_obj = Email(email_id, raw_imap_msg_data[0])  # Pass the tuple to the Email object
+                email_objs.append(email_obj)
+            except (TypeError, ValueError) as e:
+                logging.error(f"Error processing email UID {email_id}: {e}")
+                logging.debug(f"Raw message data: {raw_imap_msg_data}")
+            finally:
+                # Log progress every 100 emails or at the end
+                if count % 100 == 0 or count == total_emails:
+                    log_progress(count,total_emails,start_time)
+
+        logging.info(f"Fetched {len(email_objs)} emails from mailbox '{mailbox}'.")
         mail.close()
         mail.logout()
-        return emails
-
-    def _extract_payload(self, msg) -> str:
-        """Extracts payload from an email message."""
-        logging.debug("Extracting payload from message.")
-        payload = ""
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_type() == "text/plain" and part.get_payload(decode=True):
-                    payload += part.get_payload(decode=True).decode('utf-8', errors='ignore')
-        else:
-            if msg.get_payload(decode=True):
-                payload = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-        return payload
+        return email_objs
 
     def move(self, source_folder, destination_folder, email_id: str):
         """Moves a single email from one folder to another."""
@@ -137,77 +200,3 @@ class PostOffice():
         # Close and logout
         mail.close()
         mail.logout()
-
-    def _decode_email_header(self, header_value) -> str:
-        if not header_value:
-            return "(Unknown)"
-
-        decoded_parts = decode_header(header_value)
-        header = ""
-
-        for part, encoding in decoded_parts:
-            if isinstance(part, bytes):
-                # Handle the 'unknown-8bit' encoding case
-                if encoding == 'unknown-8bit':
-                    encoding = 'utf-8'  # Fall back to 'utf-8' for 'unknown-8bit'
-
-                # Default to 'utf-8' if encoding is None
-                encoding = encoding or 'utf-8'
-
-                try:
-                    header += part.decode(encoding, errors='ignore')
-                except (LookupError, UnicodeDecodeError) as e:
-                    logging.error(f"Error decoding part with encoding {encoding}: {e}")
-                    header += part.decode('utf-8', errors='ignore')  # Fallback to utf-8
-            else:
-                header += part
-        return header
-
-
-class Email:
-    """
-    A class representing an email with attributes for subject, sender, recipient, and payload.
-    """
-    def __init__(self, subject, sender, recipient, payload):
-        """
-        Initialize an Email object.
-
-        :param subject: The subject of the email
-        :param sender: The sender of the email
-        :param recipient: The recipient of the email
-        :param payload: The body or content of the email
-        """
-        self.subject = subject
-        self.sender = sender
-        self.recipient = recipient
-        self.payload = payload
-
-    def __repr__(self):
-        """
-        Return a string representation of the Email object for debugging.
-        """
-        return (
-            f"Email(subject={self.subject!r}, sender={self.sender!r}, "
-            f"recipient={self.recipient!r}, payload={len(self.payload)} characters)"
-        )
-
-    def to_string(self, include_subject=True, include_sender=True, include_recipient=False, include_payload=True):
-        """
-        Convert the email object to a formatted string based on included fields.
-
-        :param include_subject: Whether to include the subject in the string
-        :param include_sender: Whether to include the sender in the string
-        :param include_recipient: Whether to include the recipient in the string
-        :param include_payload: Whether to include the payload in the string
-        :return: A formatted string representation of the email
-        """
-        components = []
-        if include_subject:
-            components.append(self.subject)
-        if include_sender:
-            components.append(self.sender)
-        if include_recipient:
-            components.append(self.recipient)
-        if include_payload:
-            components.append(self.payload)
-        return " ".join(components)
