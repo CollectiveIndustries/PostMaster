@@ -141,7 +141,10 @@ class PostOffice():
                     break
                     # Validate raw_imap_msg_data[0] format
                 time.sleep(2)  # Wait 2 seconds before retrying
-            
+            # log progress after fetch
+            if count % 100 == 0 or count == total_emails:
+                log_progress(count,total_emails,start_time)
+
             if not raw_imap_msg_data or raw_imap_msg_data[0] is None:
                 logging.error(f"Failed to fetch email UID {email_id} after {retry_count} attempts: {raw_imap_msg_data}")
                 continue
@@ -160,10 +163,6 @@ class PostOffice():
             except (TypeError, ValueError) as e:
                 logging.error(f"Error processing email UID {email_id}: {e}")
                 logging.debug(f"Raw message data: {raw_imap_msg_data}")
-            finally:
-                # Log progress every 100 emails or at the end
-                if count % 100 == 0 or count == total_emails:
-                    log_progress(count,total_emails,start_time)
 
         logging.info(f"Fetched {len(email_objs)} emails from mailbox '{mailbox}'.")
         mail.close()
