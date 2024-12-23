@@ -1,6 +1,7 @@
 import tensorflow as tf
+from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import Dense, Embedding, LSTM, Dropout
+from tensorflow.keras.layers import Dense, Embedding, LSTM, Dropout, Input
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import logging
@@ -35,13 +36,14 @@ class MailNet():
 
         # Model definition
         self.model = Sequential([
+            Input(shape=(self.max_sequence_length,)),  # or just use input_length in Embedding layer
             Embedding(self.max_vocab_size, 128),
             LSTM(64, return_sequences=False),
             Dropout(0.3),
             Dense(1, activation='sigmoid')
         ])
 
-        self.model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        self.model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
 
         # Training
         self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
@@ -76,11 +78,12 @@ class MailNet():
 
     def _create_model(self):
         """Define and return a new TensorFlow model."""
-        # Example model structure
+        # Model definition
         model = Sequential([
-            Dense(128, activation='relu', input_shape=(100,)),  # Adjust input shape
+            Input(shape=(self.max_sequence_length,)),  # Define the input shape clearly
+            Dense(128, activation='relu'),
             Dense(64, activation='relu'),
             Dense(1, activation='sigmoid')  # For binary classification
         ])
-        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
         return model
