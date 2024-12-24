@@ -6,6 +6,7 @@ import email
 import sys
 import threading
 from email.header import decode_header
+from imaplib import IMAP4
 from .config import config
 from .helper import log_progress
 
@@ -185,32 +186,63 @@ class PostOffice():
 
     def bulk_move(self, source_folder, destination_folder, email_ids: list):
         """Moves multiple emails from one folder to another in bulk."""
-        logging.debug(f"Starting bulk move of {len(email_ids)} emails from '{source_folder}' to '{destination_folder}'.")
+        try:
+            logging.debug(f"Starting bulk move of {len(email_ids)} emails from '{source_folder}' to '{destination_folder}'.")
 
-        # Ensure email IDs are strings for IMAP operations
-        email_ids_str = ",".join(map(str, email_ids))
+            # Ensure email IDs are strings for IMAP operations
+            email_ids_str = ",".join(map(str, email_ids))
 
-        # Connect to the source folder
-        mail = self.connect(source_folder)
+            # Connect to the source folder
+            mail = self.connect(source_folder)
 
-        # Copy emails to the destination folder
-        result, copy_response = mail.uid("COPY", email_ids_str, destination_folder)
-        if result == "OK":
-            logging.debug(f"Copied {len(email_ids)} emails to '{destination_folder}' successfully.")
+            try:
+                # Copy emails to the destination folder
+                result, copy_response = mail.uid("COPY", email_ids_str, destination_folder)
+                if result != "OK":
+                    logging.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")
+                    raise IMAP4.error(f"COPY command failed: {copy_response}")
 
-            # Mark emails as deleted in the source folder
-            result, store_response = mail.uid("STORE", email_ids_str, "+FLAGS", "(\\Deleted)")
-            if result == "OK":
+                logging.debug(f"Copied {len(email_ids)} emails to '{destination_folder}' successfully.")
+
+                # Mark emails as deleted in the source folder
+                result, store_response = mail.uid("STORE", email_ids_str, "+FLAGS", "(\\Deleted)")
+                if result != "OK":
+                    logging.error(f"Failed to mark emails as deleted: {store_response}")
+                    raise IMAP4.error(f"STORE command failed: {store_response}")
+
                 logging.debug(f"Marked {len(email_ids)} emails as deleted in '{source_folder}'.")
 
                 # Expunge to permanently delete emails from the source folder
-                mail.expunge()
-                logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{source_folder}' to '{destination_folder}'.")
-            else:
-                logging.error(f"Failed to mark emails as deleted: {store_response}")
-        else:
-            logging.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")
+                try:
+                    mail.expunge()
+                    logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{source_folder}' to '{destination_folder}'.")
+                except IMAP4.error as e:
+                    logging.error(f"Failed to expunge emails: {e}")
+                    raise
 
-        # Close and logout
-        mail.close()
-        mail.logout()
+            except IMAP4.error as e:
+                logging.error(f"IMAP error during bulk move operations: {e}")
+                raise
+            except Exception as e:
+                logging.error(f"Unexpected error during bulk move operations: {e}")
+                raise
+
+        except IMAP4.error as e:
+            logging.error(f"IMAP error during bulk move: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error during bulk move: {e}")
+        finally:
+            try:
+                if 'mail' in locals() and mail is not None:
+                    mail.close()
+                    mail.logout()
+                    logging.debug("Connection to the mail server closed and logged out.")
+            except Exception as e:
+                logging.error(f"Error closing or logging out from the mail server: {e}")
+
+# logging.warning("Attempting to move emails individualy.")
+# start_time = time.time()
+# for index, email in enumerate(email_list, start=1):
+#     POBox.move(src_folder, dest_folder, email.uid)
+#     if index % 100 == 0 or index == total_mail:
+#         log_progress(index,total_mail, start_time)
