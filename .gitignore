@@ -59,3 +59,4 @@ temp*
 *.pkl
 *.h5
 *.keras
+model/*
