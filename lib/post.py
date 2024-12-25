@@ -92,6 +92,8 @@ class PostOffice():
         self.port = int(config.IMAP_PORT)
         self.inbox = config.INBOX
         self._StopEvent = event
+        self.capabilities = None
+        self.check_uidplus_support()
 
     def connect(self, mailbox: str, max_retries: int = 5, retry_interval: int = 30) -> imaplib.IMAP4_SSL:
         """Connects to the IMAP server and selects the mailbox."""
@@ -102,7 +104,7 @@ class PostOffice():
             try:
                 mail = imaplib.IMAP4_SSL(self.url, self.port)
                 mail.login(self.email, self.password)
-                mail.select(mailbox)
+                mail.select(mailbox, readonly=True) # DO NOT flag mail as read.
                 logging.debug(f"Successfully connected to mailbox '{mailbox}'.")
                 return mail
             except (socket.gaierror, imaplib.IMAP4.error) as e:
@@ -137,7 +139,13 @@ class PostOffice():
 
             retry_count = 3
             for attempt in range(retry_count):
-                result, raw_imap_msg_data = mail.fetch(email_id, "(RFC822)")
+                if self.capabilities and b"UIDPLUS" in self.capabilities:
+                    logging.debug(f"Fetching email using UID {email_id} with UIDPLUS support.")
+                    result, raw_imap_msg_data = mail.fetch(email_id, "(RFC822)")
+                else:
+                    logging.debug(f"Fetching email using UID {email_id} without UIDPLUS support.")
+                    result, raw_imap_msg_data = mail.fetch(email_id, '(RFC822)')
+
                 if raw_imap_msg_data[0] is not None:
                     break
                     # Validate raw_imap_msg_data[0] format
@@ -149,11 +157,11 @@ class PostOffice():
             if not raw_imap_msg_data or raw_imap_msg_data[0] is None:
                 logging.error(f"Failed to fetch email UID {email_id} after {retry_count} attempts: {raw_imap_msg_data}")
                 continue
-            
+
             if not isinstance(raw_imap_msg_data[0], tuple):
                 logging.error(f"Invalid data format for email UID {email_id}. Expected a tuple but got: {type(raw_imap_msg_data[0])}")
                 continue
-            
+
             if result != "OK":
                 logging.warning(f"Fetch result for email UID {email_id} was not 'OK'. Result: {result}")
                 continue
@@ -174,7 +182,14 @@ class PostOffice():
         """Moves a single email from one folder to another."""
         logging.debug(f"Moving email '{int(email_id)}' from '{source_folder}' to '{destination_folder}'.")
         mail = self.connect(source_folder)
-        result = mail.copy(str(email_id), destination_folder)
+
+        if self.capabilities and b"UIDPLUS" in self.capabilities:
+            logging.debug(f"Moving email UID {email_id} to {destination_folder} with UIDPLUS support.")
+            result = mail.uid('COPY', str(email_id), destination_folder)
+        else:
+            logging.debug(f"Moving email UID {email_id} to {destination_folder} without UIDPLUS support.")
+            result = mail.copy(str(email_id), destination_folder)
+
         if result[0] == "OK":
             mail.store(str(email_id), '+FLAGS', '\\Deleted')
             mail.expunge()
@@ -197,7 +212,13 @@ class PostOffice():
 
             try:
                 # Copy emails to the destination folder
-                result, copy_response = mail.uid("COPY", email_ids_str, destination_folder)
+                if self.capabilities and b"UIDPLUS" in self.capabilities:
+                    logging.debug(f"Moving email UID {email_ids} to {destination_folder} with UIDPLUS support.")
+                    result, copy_response = mail.uid('COPY', str(email_ids), destination_folder)
+                else:
+                    logging.debug(f"Moving email UID {email_ids} to {destination_folder} without UIDPLUS support.")
+                    result, copy_response = mail.copy(str(email_ids), destination_folder)
+
                 if result != "OK":
                     logging.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")
                     raise IMAP4.error(f"COPY command failed: {copy_response}")
@@ -240,9 +261,36 @@ class PostOffice():
             except Exception as e:
                 logging.error(f"Error closing or logging out from the mail server: {e}")
 
-# logging.warning("Attempting to move emails individualy.")
-# start_time = time.time()
-# for index, email in enumerate(email_list, start=1):
-#     POBox.move(src_folder, dest_folder, email.uid)
-#     if index % 100 == 0 or index == total_mail:
-#         log_progress(index,total_mail, start_time)
+    def check_uidplus_support(self):
+        """Check if the IMAP server supports UIDPLUS (RFC 4315)."""
+        try:
+            mail = self.connect(self.inbox)
+
+            # Query the server capabilities
+            status, capabilities = mail.capability()
+            if status == "OK":
+                self.capabilities = capabilities  # Save capabilities as an attribute
+                logging.debug(f"Server Capabilities: {capabilities}")
+                if b"UIDPLUS" in capabilities:
+                    logging.info("The server supports UIDPLUS (RFC 4315).")
+                    uidplus_supported = True
+                else:
+                    logging.warning("UIDPLUS is not supported by the server.")
+                    uidplus_supported = False
+            else:
+                logging.error("Failed to retrieve server capabilities.")
+                uidplus_supported = False
+
+            # Logout from the server
+            mail.close()
+            mail.logout()
+            logging.info("Logged out from the IMAP server.")
+
+            return uidplus_supported
+
+        except imaplib.IMAP4.error as e:
+            logging.critical(f"IMAP4 error: {e}")
+        except Exception as e:
+            logging.critical(f"Unexpected error: {e}")
+
+        return False
