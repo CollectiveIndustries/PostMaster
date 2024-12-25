@@ -6,6 +6,7 @@ from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import logging
 import os
+import threading
 from .config import config
 from .helper import extract_email_data
 
@@ -14,6 +15,7 @@ class MailNet():
         self.max_vocab_size = max_vocab_size
         self.tokenizer = Tokenizer(num_words=self.max_vocab_size, oov_token="<OOV>")
         self.max_sequence_length = 300
+        self.model_lock = threading.RLock()
         self.model = None
 
     def preprocess_data(self, texts: list):
@@ -25,37 +27,39 @@ class MailNet():
 
     def train(self, email_text, labels, epochs=50, batch_size=64):
         """Train the spam filter model."""
-        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+        with self.model_lock:
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 
-        text = [ extract_email_data(email) for email in email_text]
+            text = [ extract_email_data(email) for email in email_text]
 
-        # Tokenizer fit
-        self.tokenizer.fit_on_texts(text)
-        X = self.preprocess_data(text)
-        y = tf.convert_to_tensor(labels)
+            # Tokenizer fit
+            self.tokenizer.fit_on_texts(text)
+            X = self.preprocess_data(text)
+            y = tf.convert_to_tensor(labels)
 
-        # Model definition
-        self.model = Sequential([
-            Input(shape=(self.max_sequence_length,)),  # or just use input_length in Embedding layer
-            Embedding(self.max_vocab_size, 128),
-            LSTM(64, return_sequences=False),
-            Dropout(0.3),
-            Dense(1, activation='sigmoid')
-        ])
+            # Model definition
+            self.model = Sequential([
+                Input(shape=(self.max_sequence_length,)),  # or just use input_length in Embedding layer
+                Embedding(self.max_vocab_size, 128),
+                LSTM(64, return_sequences=False),
+                Dropout(0.3),
+                Dense(1, activation='sigmoid')
+            ])
 
-        self.model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
+            self.model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
 
-        # Training
-        self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
+            # Training
+            self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
 
     def classify(self, text: str) -> list[int]:
         """Classify email as spam or ham (0 or 1)."""
-        if not self.model:
-            logging.error("Model is not trained or loaded. Please train or load a model before classification.")
-            raise ValueError("Model is not trained or loaded. Please train or load a model before classification.")
-        X = self.preprocess_data([text])
-        predictions = self.model.predict(X)
-        return 1 if predictions[0] > 0.5 else 0
+        with self.model_lock:
+            if not self.model:
+                logging.error("Model is not trained or loaded. Please train or load a model before classification.")
+                raise ValueError("Model is not trained or loaded. Please train or load a model before classification.")
+            X = self.preprocess_data([text])
+            predictions = self.model.predict(X)
+            return 1 if predictions[0] > 0.5 else 0
 
     def save_model(self, model_path=f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras"):
         """Save the trained model to disk."""

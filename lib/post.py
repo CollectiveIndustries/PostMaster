@@ -8,7 +8,8 @@ import threading
 from email.header import decode_header
 from imaplib import IMAP4
 from .config import config
-from .helper import log_progress
+from .helper import log_progress, load_failed_uids, save_failed_uids
+from .locks import failed_uid_lock
 
 class Email:
     def __init__(self, uid, raw_data):
@@ -94,6 +95,7 @@ class PostOffice():
         self._StopEvent = event
         self.capabilities = None
         self.check_uidplus_support()
+        self._failed_uids = load_failed_uids()
 
     def connect(self, mailbox: str, max_retries: int = 5, retry_interval: int = 30) -> imaplib.IMAP4_SSL:
         """Connects to the IMAP server and selects the mailbox."""
@@ -128,6 +130,9 @@ class PostOffice():
         email_ids = data[0].split()
         email_objs = []
         total_emails = len(email_ids)
+        # strip out the bad UIDs
+        with failed_uid_lock:
+            email_ids = [e for e in email_ids if (mailbox, e.decode('utf-8')) not in self._failed_uids]
 
         logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}'.")
         start_time = time.time()  # Record the start time for speed calculation
@@ -152,10 +157,11 @@ class PostOffice():
                 time.sleep(2)  # Wait 2 seconds before retrying
             # log progress after fetch
             if count % 100 == 0 or count == total_emails:
-                log_progress(count,total_emails,start_time)
+                log_progress(count, total_emails, start_time)
 
             if not raw_imap_msg_data or raw_imap_msg_data[0] is None:
                 logging.error(f"Failed to fetch email UID {email_id} after {retry_count} attempts: {raw_imap_msg_data}")
+                self._failed_uids.add((mailbox, email_id.decode('utf-8')))
                 continue
 
             if not isinstance(raw_imap_msg_data[0], tuple):
@@ -174,6 +180,7 @@ class PostOffice():
                 logging.debug(f"Raw message data: {raw_imap_msg_data}")
 
         logging.info(f"Fetched {len(email_objs)} emails from mailbox '{mailbox}'.")
+        save_failed_uids(self._failed_uids)
         mail.close()
         mail.logout()
         return email_objs

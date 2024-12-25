@@ -10,6 +10,7 @@ from lib.logs import LogRotation
 from lib.MailNet import MailNet
 from lib.helper import extract_email_data, log_progress
 
+# Refactor this class to use the PostOffice.Bulk_Move() method instead
 def bulk_move(email_list: list[Email], src_folder, dest_folder):
     total_mail = len(email_list)
     start_time = time.time()
@@ -17,25 +18,40 @@ def bulk_move(email_list: list[Email], src_folder, dest_folder):
     logging.info(f"Moving {total_mail} emails from {src_folder} to {dest_folder}")
     for index, email in enumerate(email_list, start=1):
         email_ids.append(email.uid)  # Extract email_id from the Email Object
+        if index % 100 == 0 or index == total_mail:
+            log_progress(index,total_mail, start_time)
     try:
         POBox.bulk_move(src_folder, dest_folder, email_ids)
     except Exception as e:
-        logging.error(f"Failed to move email {email_ids}: {e}")
+        logging.error(f"Failed to move batch {email_ids}: {e}")
 
         # Log progress every 100 emails
-        if index % 100 == 0 or index == total_mail:
-            log_progress(index,total_mail, start_time)
+
     logging.info(f"Bulk move completed. {total_mail} emails processed from {src_folder} to {dest_folder}.")
 
 # Usage Example
 if __name__ == "__main__":
-    # Folder settings
+    # General configs
     spam_folder = config.SPAM_FOLDER
     ham_folder = config.HAM_FOLDER
     infected_folder = config.INFECTED_FOLDER
     spam_learn = config.SPAM_LEARN
     ham_learn = config.HAM_LEARN
+    ScanTime = int(config.SCAN_TIME)
 
+    # Additional Resources
+
+    # Threading resources
+    model_lock = threading.RLock()
+    StopEvent = threading.Event()
+    ProcEvent = threading.Event()
+
+    # Class Objects
+    Logger = LogRotation()
+    POBox = PostOffice(StopEvent)
+    NeuralNet = MailNet()
+
+    # Thread defs
     def LogRotate(stop_event: threading.Event):
         log_file = config.LOG_FILE
 
@@ -135,9 +151,10 @@ if __name__ == "__main__":
         scan_interval = scan_interval or config.SCAN_TIME
         logging.debug(f"sync_event ID: {id(sync_event)}")
         while not stop_event.is_set():
-            logging.info("Classification task waiting for training.")
-            sync_event.wait()  # Wait for the training task to complete
-            logging.info("Classification task started after training.")
+            if not sync_event.is_set():
+                logging.info("Classification task waiting for training.")
+                sync_event.wait()  # Wait for the training task to complete
+                logging.info("Classification task started after training.")
 
             # Load the trained model
             NeuralNet.load_model()
@@ -147,7 +164,11 @@ if __name__ == "__main__":
 
             logging.info("Mail fetched running Classification.")
             for email in email_que:
-                email.classification = NeuralNet.classify(extract_email_data(email))
+                try:
+                    email.classification = NeuralNet.classify(extract_email_data(email))
+                except Exception as e:
+                    logging.error(f"Error classifying email {email.uid}: {e}", exc_info=True)
+                    email.classification = None  # Mark as unclassified
 
             logging.info(f"{len(email_que)} emails classified.")
             logging.info(f"Sorting and moving {len(email_que)} emails.")
@@ -159,11 +180,14 @@ if __name__ == "__main__":
                 # Log classification for debugging
                 logging.debug(f"Email ID {mail.uid} classified as {'Spam' if mail.classification > 0.5 else 'Ham'}.")
 
-                label = 'Spam' if mail.classification > 0.5 else 'Ham'
-                destination_folder = config.SPAM_FOLDER if label == "Spam" else config.HAM_FOLDER
+                if mail.classification is not None:
+                    label = 'Spam' if mail.classification > 0.5 else 'Ham'
+                    destination_folder = config.SPAM_FOLDER if label == "Spam" else config.HAM_FOLDER
 
-                # Move the email to the appropriate folder
-                POBox.move(config.INBOX, destination_folder, mail.uid)
+                    # Move the email to the appropriate folder
+                    POBox.move(config.INBOX, destination_folder, mail.uid)
+                else:
+                    logging.warning(f"Email ID {mail.uid} could not be classified.")
 
                 # Log progress every 100 emails
                 if index % 100 == 0 or index == total_emails:
@@ -173,15 +197,7 @@ if __name__ == "__main__":
             time.sleep(scan_interval)
         logging.info("Stop Called! shutting PostMan thread down!")
 
-    StopEvent = threading.Event()
-    ProcEvent = threading.Event()
-
-    ScanTime = int(config.SCAN_TIME)
-
-    Logger = LogRotation()
-    POBox = PostOffice(StopEvent)
-    NeuralNet = MailNet()
-
+    # 
     LogDaemon = DaemonThread(name="LogRotation", target=LogRotate, args=(StopEvent,),)
     TrainingDaemon = DaemonThread(name="Trainer", target=Trainer, args=(ProcEvent, StopEvent),)
     OfficeDaemon = DaemonThread(name="PostMan", target=PostMan, args=(ProcEvent, StopEvent),)

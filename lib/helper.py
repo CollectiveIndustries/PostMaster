@@ -1,7 +1,9 @@
 from __future__ import annotations  # Allows forward declarations
-from .config import config
+import json
 import logging
 import time
+from .config import config
+from .locks import failed_uid_lock
 
 def extract_email_data(email: Email):
     """
@@ -50,3 +52,29 @@ def log_progress(index, total, start_time):
         f"({index / total:.2%} complete). "
         f"Estimated time till completion: {formatted_etc}"
     )
+
+
+# Utility methods for saving and loading failed UIDs
+def save_failed_uids(uids: set):
+    """Save the failed UIDs to a JSON file."""
+    with failed_uid_lock:
+        try:
+            with open(config.FAILED_UID_FILE, "w") as file:
+                json.dump(list(uids), file)
+            logging.info(f"Saved {len(uids)} failed UIDs.")
+        except Exception as e:
+            logging.error(f"Error saving failed UIDs: {e}", exc_info=True)
+
+def load_failed_uids() -> set:
+    """Load the failed UIDs from a JSON file."""
+    try:
+        with open(config.FAILED_UID_FILE, "r") as file:
+            uids = set(json.load(file))
+        logging.info(f"Loaded {len(uids)} failed UIDs.")
+        return uids
+    except FileNotFoundError:
+        logging.warning("Failed UIDs file not found. Starting with an empty set.")
+        return set()
+    except Exception as e:
+        logging.error(f"Error loading failed UIDs: {e}", exc_info=True)
+        return set()

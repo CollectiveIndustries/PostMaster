@@ -23,6 +23,7 @@ class conf:
 
         # Daemon Settings
         self.TRAINING_DATA_PATH = CONFIG.get('DaemonSettings', 'data_path')
+        self.FAILED_UID_FILE = f"{CONFIG.get('DaemonSettings', 'data_path')}/failed_uids.json" # placeholder config value
         self.SCAN_TIME = int(CONFIG.get('DaemonSettings', 'scan_time'))
 
         # Log Settings
