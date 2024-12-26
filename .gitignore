@@ -60,3 +60,4 @@ temp*
 *.h5
 *.keras
 model/*
+*.json

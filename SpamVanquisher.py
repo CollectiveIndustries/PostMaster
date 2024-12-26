@@ -19,7 +19,7 @@ def bulk_move(email_list: list[Email], src_folder, dest_folder):
     for index, email in enumerate(email_list, start=1):
         email_ids.append(email.uid)  # Extract email_id from the Email Object
         if index % 100 == 0 or index == total_mail:
-            log_progress(index,total_mail, start_time)
+            log_progress(index, total_mail, start_time)
     try:
         POBox.bulk_move(src_folder, dest_folder, email_ids)
     except Exception as e:
