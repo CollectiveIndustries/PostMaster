@@ -33,7 +33,7 @@ class conf:
         self.BACKUP_COUNT = int(CONFIG.get('Logs', 'backup_count', fallback=5))
         self.CHECK_INTERVAL = int(CONFIG.get('Logs', 'check_interval', fallback=60))
         
-        # TODO Network maping method to config file
+        # TODO Network maping method to config file (kinda lost the idea on what this was about)
         # Load Email Parts Settings
         self.USE_SUBJECT = CONFIG.getboolean('EmailParts', 'use_subject', fallback=True)
         self.USE_SENDER = CONFIG.getboolean('EmailParts', 'use_sender', fallback=True)

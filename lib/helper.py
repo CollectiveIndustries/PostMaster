@@ -60,7 +60,11 @@ def save_failed_uids(uids: set):
     with failed_uid_lock:
         try:
             with open(config.FAILED_UID_FILE, "w") as file:
-                json.dump(list(uids), file)
+                # Convert UIDs to strings for JSON compatibility
+                json.dump(
+                    [uid.decode() if isinstance(uid, bytes) else uid for uid in uids], 
+                    file
+                )
             logging.info(f"Saved {len(uids)} failed UIDs.")
         except Exception as e:
             logging.error(f"Error saving failed UIDs: {e}", exc_info=True)
@@ -69,12 +73,29 @@ def load_failed_uids() -> set:
     """Load the failed UIDs from a JSON file."""
     try:
         with open(config.FAILED_UID_FILE, "r") as file:
-            uids = set(json.load(file))
+            # Ensure UIDs are converted to bytes if necessary
+            uids = set(
+                uid.encode() if isinstance(uid, str) else uid for uid in json.load(file)
+            )
         logging.info(f"Loaded {len(uids)} failed UIDs.")
         return uids
     except FileNotFoundError:
         logging.warning("Failed UIDs file not found. Starting with an empty set.")
         return set()
-    except Exception as e:
-        logging.error(f"Error loading failed UIDs: {e}", exc_info=True)
+    except json.JSONDecodeError as e:
+        logging.error(f"Error parsing failed UIDs file: {e}", exc_info=True)
         return set()
+    except Exception as e:
+        logging.error(f"Unexpected error loading failed UIDs: {e}", exc_info=True)
+        return set()
+    
+def interruptible_sleep(duration, stop_event):
+    """Sleeps for the given duration in small intervals, allowing interruption."""
+    interval = 0.1  # Check the stop_event every 0.1 seconds
+    elapsed = 0
+
+    while elapsed < duration:
+        if stop_event.is_set():
+            return
+        time.sleep(interval)
+        elapsed += interval

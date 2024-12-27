@@ -8,7 +8,7 @@ import threading
 from email.header import decode_header
 from imaplib import IMAP4
 from .config import config
-from .helper import log_progress, load_failed_uids, save_failed_uids
+from .helper import log_progress, load_failed_uids, save_failed_uids, interruptible_sleep
 from .locks import failed_uid_lock
 
 class Email:
@@ -111,7 +111,7 @@ class PostOffice():
                 return mail
             except (socket.gaierror, imaplib.IMAP4.error) as e:
                 logging.error(f"IMAP connection error (attempt {attempts + 1}): {e}")
-                time.sleep(retry_interval)
+                interruptible_sleep(retry_interval,self._StopEvent)
                 attempts += 1
         logging.critical("Max retries reached. Exiting...")
         sys.exit(1)
@@ -144,16 +144,12 @@ class PostOffice():
 
             retry_count = 3
             for attempt in range(retry_count):
-                if self.capabilities and b"UIDPLUS" in self.capabilities:
-                    logging.debug(f"Fetching email using UID {email_id} with UIDPLUS support.")
-                    result, raw_imap_msg_data = mail.fetch(email_id, "(RFC822)")
-                else:
-                    logging.debug(f"Fetching email using UID {email_id} without UIDPLUS support.")
-                    result, raw_imap_msg_data = mail.fetch(email_id, '(RFC822)')
+                fetch_command = "(UID RFC822)" if self.capabilities and b"UIDPLUS" in self.capabilities else "(RFC822)"
+                logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email using UID {email_id} with command {fetch_command}.")
+                result, raw_imap_msg_data = mail.fetch(email_id, fetch_command)
 
-                if raw_imap_msg_data[0] is not None:
-                    break
-                    # Validate raw_imap_msg_data[0] format
+                if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
+                    break  # Exit loop on successful fetch
                 time.sleep(2)  # Wait 2 seconds before retrying
             # log progress after fetch
             if count % 100 == 0 or count == total_emails:
@@ -192,10 +188,10 @@ class PostOffice():
 
         if self.capabilities and b"UIDPLUS" in self.capabilities:
             logging.debug(f"Moving email UID {email_id} to {destination_folder} with UIDPLUS support.")
-            result = mail.uid('COPY', str(email_id), destination_folder)
+            result = mail.uid('COPY', email_id.decode(), destination_folder)
         else:
             logging.debug(f"Moving email UID {email_id} to {destination_folder} without UIDPLUS support.")
-            result = mail.copy(str(email_id), destination_folder)
+            result = mail.copy(email_id.decode(), destination_folder)
 
         if result[0] == "OK":
             mail.store(str(email_id), '+FLAGS', '\\Deleted')
@@ -212,7 +208,7 @@ class PostOffice():
             logging.debug(f"Starting bulk move of {len(email_ids)} emails from '{source_folder}' to '{destination_folder}'.")
 
             # Ensure email IDs are strings for IMAP operations
-            email_ids_str = ",".join(map(str, email_ids))
+            email_ids_str = ",".join(uid.decode() for uid in email_ids if isinstance(uid, bytes))
 
             # Connect to the source folder
             mail = self.connect(source_folder)
@@ -221,10 +217,10 @@ class PostOffice():
                 # Copy emails to the destination folder
                 if self.capabilities and b"UIDPLUS" in self.capabilities:
                     logging.debug(f"Moving email UID {email_ids} to {destination_folder} with UIDPLUS support.")
-                    result, copy_response = mail.uid('COPY', str(email_ids), destination_folder)
+                    result, copy_response = mail.uid('COPY', email_ids_str, destination_folder)
                 else:
                     logging.debug(f"Moving email UID {email_ids} to {destination_folder} without UIDPLUS support.")
-                    result, copy_response = mail.copy(str(email_ids), destination_folder)
+                    result, copy_response = mail.copy(email_ids_str, destination_folder)
 
                 if result != "OK":
                     logging.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")

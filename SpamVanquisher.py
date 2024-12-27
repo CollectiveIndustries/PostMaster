@@ -8,7 +8,7 @@ from lib.config import config
 from lib.post import PostOffice, Email
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
-from lib.helper import extract_email_data, log_progress
+from lib.helper import extract_email_data, log_progress, interruptible_sleep
 
 # Refactor this class to use the PostOffice.Bulk_Move() method instead
 def bulk_move(email_list: list[Email], src_folder, dest_folder):
@@ -69,7 +69,7 @@ if __name__ == "__main__":
                         log_file.write("")  # Initialize an empty log file
             except Exception as e:
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
-            time.sleep(config.CHECK_INTERVAL)
+            interruptible_sleep(config.CHECK_INTERVAL, stop_event)
         logging.info("Log rotation thread stopped.")
 
     def Trainer(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
@@ -138,7 +138,7 @@ if __name__ == "__main__":
 
                 # Wait before retraining
                 logging.info(f"Finished processing training data. Waiting {scan_interval} seconds to retrain.")
-                time.sleep(scan_interval)
+                interruptible_sleep(scan_interval,stop_event)
                 sync_event.clear()
 
             except Exception as e:
@@ -194,8 +194,8 @@ if __name__ == "__main__":
                     log_progress(index,total_emails,start_time)
 
             logging.info(f"{len(email_que)} emails sorted and moved. Waiting for next scan event")
-            time.sleep(scan_interval)
-        logging.info("Stop Called! shutting PostMan thread down!")
+            interruptible_sleep(scan_interval,stop_event)
+        logging.info("Stop Called! Shutting PostMan thread down!")
 
     # 
     LogDaemon = DaemonThread(name="LogRotation", target=LogRotate, args=(StopEvent,),)
