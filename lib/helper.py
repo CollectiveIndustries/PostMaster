@@ -99,3 +99,21 @@ def interruptible_sleep(duration, stop_event):
             return
         time.sleep(interval)
         elapsed += interval
+
+def ElapsedTimeFormat(start_time, stop_time) -> str:
+    elapsed_time = stop_time - start_time  # Calculate the elapsed time
+    elapsed_time_int = int(elapsed_time)  # Convert to integer (seconds only)
+    
+    # Calculate hours, minutes, seconds
+    hours = elapsed_time_int // 3600
+    minutes = (elapsed_time_int % 3600) // 60
+    seconds = elapsed_time_int % 60
+    
+    # Format the time string, only including non-zero components
+    if hours > 0:
+        time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+    elif minutes > 0:
+        time_str = f"{minutes:02}:{seconds:02}"
+    else:
+        time_str = f"{seconds:02}"
+    return time_str

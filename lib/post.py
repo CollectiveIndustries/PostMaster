@@ -8,7 +8,7 @@ import threading
 from email.header import decode_header
 from imaplib import IMAP4
 from .config import config
-from .helper import log_progress, load_failed_uids, save_failed_uids, interruptible_sleep
+from .helper import log_progress, load_failed_uids, save_failed_uids, interruptible_sleep, ElapsedTimeFormat
 from .locks import failed_uid_lock
 
 class Email:
@@ -175,7 +175,7 @@ class PostOffice():
                 logging.error(f"Error processing email UID {email_id}: {e}")
                 logging.debug(f"Raw message data: {raw_imap_msg_data}")
 
-        logging.info(f"Fetched {len(email_objs)} emails from mailbox '{mailbox}'.")
+        logging.info(f"Fetched {len(email_objs)} emails from mailbox '{mailbox}'. Time elapsed: {ElapsedTimeFormat(start_time, time.time())}")
         save_failed_uids(self._failed_uids)
         mail.close()
         mail.logout()
