@@ -8,7 +8,7 @@ import threading
 from email.header import decode_header
 from imaplib import IMAP4
 from .config import config
-from .helper import log_progress, load_failed_uids, save_failed_uids, interruptible_sleep, ElapsedTimeFormat
+from .utils import log_progress, load_failed_uids, save_failed_uids, interruptible_sleep, ElapsedTimeFormat
 from .locks import failed_uid_lock
 
 class Email:

@@ -8,7 +8,7 @@ import logging
 import os
 import threading
 from .config import config
-from .helper import extract_email_data
+from .utils import extract_email_data
 
 class MailNet():
     def __init__(self, max_vocab_size=10000):

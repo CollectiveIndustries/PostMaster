@@ -8,7 +8,7 @@ from lib.config import config
 from lib.post import PostOffice, Email
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
-from lib.helper import extract_email_data, log_progress, interruptible_sleep
+from lib.utils import extract_email_data, log_progress, interruptible_sleep
 
 # Refactor this class to use the PostOffice.Bulk_Move() method instead
 def bulk_move(email_list: list[Email], src_folder, dest_folder):
