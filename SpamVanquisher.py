@@ -8,6 +8,7 @@ from lib.config import config
 from lib.post import PostOffice, Email, EmailHasher
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
+from lib.database import EmailDatabase
 from lib.utils import extract_email_data, log_progress, interruptible_sleep
 
 # Refactor this class to use the PostOffice.Bulk_Move() method instead
@@ -86,6 +87,17 @@ if __name__ == "__main__":
                 logging.info("Model loaded for training.")
                 Spam, Ham = [], []
                 HashLock = threading.RLock()
+                dataStore = EmailDatabase(
+                    host=config.SQL_HOST,
+                    user=config.SQL_USER,
+                    password=config.SQL_PASSWORD,
+                    database=config.SQL_DATABSE,
+                    port=config.SQL_PORT
+                    )
+                
+                dataStore.add_folder_and_classification(classification_id="0", folder_name="Ham")
+                dataStore.add_folder_and_classification(classification_id="1", folder_name="Spam")
+                dataStore.close()
 
                 # Define threads to fetch emails in parallel
                 def fetch_mail(mailbox_name, classification_number, result_container):
@@ -100,22 +112,33 @@ if __name__ == "__main__":
                     nonlocal HashLock
                     HashTable = EmailHasher(lock=HashLock)
                     MailBox = PostOffice(StopEvent)
+                    db_thread = EmailDatabase(
+                        host=config.SQL_HOST,
+                        user=config.SQL_USER,
+                        password=config.SQL_PASSWORD,
+                        database=config.SQL_DATABSE,
+                        port=config.SQL_PORT
+                        )
+
                     MailBox.connect()
                     emails = MailBox.fetch_emails(mailbox_name)
                     MailBox.logout()
                     for e in emails:
                         HashTable.add_email(email_hash=e.hash, classification_number=classification_number)
+                        db_thread.add_email_hash(e.hash,classification_number)
                     HashTable.save_hash_table()
                     result_container.extend(emails)  # Store fetched emails in the provided container
+                    db_thread.close()
 
                 # Spawn threads dynamically
                 threads = [
                     threading.Thread(target=fetch_mail, args=(spam_learn, 1, Spam), name="Trainer-FetchSpam"),
                     threading.Thread(target=fetch_mail, args=(ham_learn, 0, Ham), name="Trainer-FetchHam")
                 ]
-
+                
                 for thread in threads:
                     thread.start()
+                
                 
                 for thread in threads:
                     thread.join()

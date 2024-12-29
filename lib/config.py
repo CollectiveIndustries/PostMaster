@@ -40,6 +40,12 @@ class conf:
         self.USE_RECIPIENT = CONFIG.getboolean('EmailParts', 'use_recipient', fallback=False)
         self.USE_BODY = CONFIG.getboolean('EmailParts', 'use_body', fallback=True)
 
+        # MySQL Database settings for hashtable
+        self.SQL_USER = CONFIG.get('MySQL','user', fallback='SpamVanquisher')
+        self.SQL_HOST = CONFIG.get('MySQL','host', fallback='127.0.0.1')
+        self.SQL_DATABSE = CONFIG.get('MySQL','database', fallback='SpamVanquisher')
+        self.SQL_PASSWORD = CONFIG.get('MySQL','password')
+        self.SQL_PORT = int(CONFIG.get('MySQL','port',fallback=3306))
 
         # Clear any existing handlers and setup logging explicitly
         for handler in logging.root.handlers[:]:
