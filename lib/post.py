@@ -145,11 +145,12 @@ class PostOffice():
 
         email_ids = data[0].split()
         email_objs = []
-        total_emails = len(email_ids)
         # strip out the bad UIDs
         with failed_uid_lock:
-            email_ids = [e for e in email_ids if (mailbox, e.decode('utf-8')) not in self._failed_uids]
+            email_ids = [e for e in email_ids if (mailbox, e) not in self._failed_uids or e not in self._failed_uids[mailbox]]
 
+        total_emails = len(email_ids)
+        
         logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}'.")
         start_time = time.time()  # Record the start time for speed calculation
 
@@ -187,7 +188,9 @@ class PostOffice():
                 time.sleep(2)  # Wait 2 seconds before retrying
             else:
                 logging.error(f"Failed to fetch email UID {email_id} after {retry_count} attempts: {raw_imap_msg_data}")
-                self._failed_uids.add((mailbox, email_id.decode('utf-8')))
+                if mailbox not in self._failed_uids:
+                    self._failed_uids[mailbox] = set()
+                self._failed_uids[mailbox].add(email_id.decode('utf-8'))
 
             # log progress after fetch
             if count % 100 == 0 or count == total_emails:
@@ -320,9 +323,10 @@ class PostOffice():
         return False
     
 class EmailHasher:
-    def __init__(self, table_file='email_hash_table.json'):
+    def __init__(self, table_file='email_hash_table.json', lock=None):
         self.table_file = f"{config.TRAINING_DATA_PATH}/{table_file}"
-        
+        self.lock = lock or threading.RLock()  # Use the provided lock or create a new one
+
         # Load the existing table from disk if it exists
         if os.path.exists(self.table_file):
             with open(self.table_file, 'r') as f:
@@ -334,26 +338,28 @@ class EmailHasher:
         """
         Save the hash table to disk in JSON format.
         """
-        with open(self.table_file, 'w') as f:
-            json.dump(self.hash_table, f, indent=4)
+        with self.lock:  # Acquire the lock before writing
+            with open(self.table_file, 'w') as f:
+                json.dump(self.hash_table, f, indent=4)
 
     def load_hash_table(self):
         """
         Load the hash table from disk if the file exists.
         """
-        if os.path.exists(self.table_file):
-            with open(self.table_file, 'r') as f:
-                self.hash_table = json.load(f)
-        else:
-            self.hash_table = {}
+        with self.lock:  # Acquire the lock before reading
+            if os.path.exists(self.table_file):
+                with open(self.table_file, 'r') as f:
+                    self.hash_table = json.load(f)
+            else:
+                self.hash_table = {}
 
-    def add_email(self, email_content, classification_number):
+    def add_email(self, email_hash, classification_number):
         """
         Add an email hash and its classification to the hash table.
         """
-        email_hash = self.generate_sha256sum(email_content)
-        self.hash_table[email_hash] = classification_number
-        self.save_hash_table()
+        with self.lock:  # Acquire the lock before modifying the hash table
+            self.hash_table[email_hash] = classification_number
+            self.save_hash_table()
 
     def get_classification(self, email_content):
         """
@@ -371,4 +377,5 @@ class EmailHasher:
             email_content = email_content.encode('utf-8')
         sha256_hash = hashlib.sha256(email_content).hexdigest()
         return sha256_hash
+
     

@@ -5,12 +5,13 @@ import os
 import signal
 from lib.Daemon import DaemonThread
 from lib.config import config
-from lib.post import PostOffice, Email
+from lib.post import PostOffice, Email, EmailHasher
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
 from lib.utils import extract_email_data, log_progress, interruptible_sleep
 
 # Refactor this class to use the PostOffice.Bulk_Move() method instead
+# TODO add hash lookup for cross checking mail lables
 def bulk_move(email_list: list[Email], src_folder, dest_folder):
     total_mail = len(email_list)
     start_time = time.time()
@@ -83,32 +84,41 @@ if __name__ == "__main__":
             try:
                 NeuralNet.load_model()
                 logging.info("Model loaded for training.")
+                Spam, Ham = [], []
+                HashLock = threading.RLock()
 
                 # Define threads to fetch emails in parallel
-                def fetch_spam():
-                    nonlocal Spam
-                    SpamBox = PostOffice(StopEvent)
-                    SpamBox.connect()
-                    Spam = SpamBox.fetch_emails(spam_learn)
-                    # Save Rainbow table
-                    SpamBox.logout()
+                def fetch_mail(mailbox_name, classification_number, result_container):
+                    """
+                    Generic function to fetch emails and update the hash table.
 
-                def fetch_ham():
-                    nonlocal Ham
-                    HamBox = PostOffice(StopEvent)
-                    HamBox.connect()
-                    Ham = HamBox.fetch_emails(ham_learn)
-                    HamBox.logout()
+                    Parameters:
+                    - mailbox_name: The mailbox to fetch emails from.
+                    - classification_number: Classification number for the emails (e.g., 1 for spam, 0 for ham).
+                    - result_container: A nonlocal variable to store the fetched emails.
+                    """
+                    nonlocal HashLock
+                    HashTable = EmailHasher(lock=HashLock)
+                    MailBox = PostOffice(StopEvent)
+                    MailBox.connect()
+                    emails = MailBox.fetch_emails(mailbox_name)
+                    MailBox.logout()
+                    for e in emails:
+                        HashTable.add_email(email_hash=e.hash, classification_number=classification_number)
+                    HashTable.save_hash_table()
+                    result_container.extend(emails)  # Store fetched emails in the provided container
 
-                Spam, Ham = [], []
-                spam_fetch_thread = threading.Thread(target=fetch_spam, name="Trainer-FetchSpam")
-                ham_fetch_thread = threading.Thread(target=fetch_ham, name="Trainer-FetchHam")
+                # Spawn threads dynamically
+                threads = [
+                    threading.Thread(target=fetch_mail, args=(spam_learn, 1, Spam), name="Trainer-FetchSpam"),
+                    threading.Thread(target=fetch_mail, args=(ham_learn, 0, Ham), name="Trainer-FetchHam")
+                ]
 
-                spam_fetch_thread.start()
-                ham_fetch_thread.start()
-
-                spam_fetch_thread.join()
-                ham_fetch_thread.join()
+                for thread in threads:
+                    thread.start()
+                
+                for thread in threads:
+                    thread.join()
 
                 logging.info(f"Fetched {len(Spam)} spam emails and {len(Ham)} ham emails.")
 

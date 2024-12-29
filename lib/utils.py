@@ -75,7 +75,7 @@ def save_failed_uids(uids_by_mailbox: dict):
 
         logging.info(f"Saved failed UIDs for {len(uids_by_mailbox)} mailboxes.")
     except Exception as e:
-        logging.error(f"Unexpected error saving failed UIDs: {e}", exc_info=True)
+        logging.error(f"Unexpected error saving failed UIDs to {config.FAILED_UID_FILE}: {e}", exc_info=True)
 
 def load_failed_uids() -> dict:
     """
