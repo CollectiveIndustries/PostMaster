@@ -15,6 +15,8 @@ def bulk_move(email_list: list[Email], src_folder, dest_folder):
     total_mail = len(email_list)
     start_time = time.time()
     email_ids = []
+    # Connect
+    # Fetch Sequence Numbers
     logging.info(f"Moving {total_mail} emails from {src_folder} to {dest_folder}")
     for index, email in enumerate(email_list, start=1):
         email_ids.append(email.uid)  # Extract email_id from the Email Object
@@ -25,7 +27,7 @@ def bulk_move(email_list: list[Email], src_folder, dest_folder):
     except Exception as e:
         logging.error(f"Failed to move batch {email_ids}: {e}")
 
-        # Log progress every 100 emails
+        # Close/Logout
 
     logging.info(f"Bulk move completed. {total_mail} emails processed from {src_folder} to {dest_folder}.")
 
@@ -48,7 +50,6 @@ if __name__ == "__main__":
 
     # Class Objects
     Logger = LogRotation()
-    POBox = PostOffice(StopEvent)
     NeuralNet = MailNet()
 
     # Thread defs
@@ -86,11 +87,18 @@ if __name__ == "__main__":
                 # Define threads to fetch emails in parallel
                 def fetch_spam():
                     nonlocal Spam
-                    Spam = POBox.fetch_emails(spam_learn)
+                    SpamBox = PostOffice(StopEvent)
+                    SpamBox.connect()
+                    Spam = SpamBox.fetch_emails(spam_learn)
+                    # Save Rainbow table
+                    SpamBox.logout()
 
                 def fetch_ham():
                     nonlocal Ham
-                    Ham = POBox.fetch_emails(ham_learn)
+                    HamBox = PostOffice(StopEvent)
+                    HamBox.connect()
+                    Ham = HamBox.fetch_emails(ham_learn)
+                    HamBox.logout()
 
                 Spam, Ham = [], []
                 spam_fetch_thread = threading.Thread(target=fetch_spam, name="Trainer-FetchSpam")
@@ -146,7 +154,6 @@ if __name__ == "__main__":
 
         logging.info("Stop called! Shutting Trainer thread down.")
 
-
     def PostMan(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
         scan_interval = scan_interval or config.SCAN_TIME
         logging.debug(f"sync_event ID: {id(sync_event)}")
@@ -160,6 +167,8 @@ if __name__ == "__main__":
             NeuralNet.load_model()
             logging.info(f"Model loaded for classification. fetching new mail from {config.INBOX}")
 
+            POBox = PostOffice(StopEvent)
+            POBox.connect()
             email_que = POBox.fetch_emails(config.INBOX)
 
             logging.info("Mail fetched running Classification.")
