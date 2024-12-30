@@ -92,7 +92,7 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error logging email processing: {e}")
             self.connection.rollback()
-            
+
     def add_folder_and_classification(self, classification_id: str, folder_name: str):
         try:
             # Check if the classification_id exists in the classifications table
@@ -100,14 +100,14 @@ class EmailDatabase:
             if self.cursor.fetchone() is None:
                 # If no classification_id exists, insert the new classification_id
                 logging.warning(f"Classification ID '{classification_id}' does not exist. Creating a new classification.")
-    
+
                 # Optionally, insert a default classification, or handle as needed
                 # If you want to insert the classification as well (uncomment below)
                 self.cursor.execute(
                     "INSERT INTO classifications (classification_id) VALUES (%s)", (classification_id,)
                 )
                 self.connection.commit()
-    
+
             # Check if the folder_name with the given classification_id already exists
             self.cursor.execute(
                 "SELECT 1 FROM classification_folders WHERE classification_id = %s AND folder_name = %s", 
@@ -116,7 +116,7 @@ class EmailDatabase:
             if self.cursor.fetchone() is not None:
                 logging.info(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
                 return  # Exit if the folder already exists
-    
+
             # Insert the new folder and its classification mapping into classification_folders table
             self.cursor.execute(
                 "INSERT INTO classification_folders (classification_id, folder_name) VALUES (%s, %s)",
@@ -124,11 +124,53 @@ class EmailDatabase:
             )
             self.connection.commit()
             logging.info(f"Folder '{folder_name}' with classification ID '{classification_id}' added successfully.")
-        
+
         except MySQLdb.Error as e:
             logging.error(f"Error adding folder and classification: {e}")
             self.connection.rollback()
 
+    def set_trained_flag(self, hash_id: str, trained: bool = True):
+        """
+        Updates the 'trained' flag for a given hash ID.
+
+        Parameters:
+        - hash_id: The SHA256 hash of the email.
+        - trained: Boolean value to set the flag (default is True).
+        """
+        try:
+            query = "UPDATE email_hashes SET trained = %s WHERE hash_id = %s"
+            self.cursor.execute(query, (trained, hash_id))
+            self.connection.commit()
+            logging.info(f"Set 'trained' flag to {trained} for hash ID: {hash_id}")
+        except MySQLdb.Error as e:
+            logging.error(f"Error setting 'trained' flag for hash ID {hash_id}: {e}")
+            self.connection.rollback()
+
+    def is_trained(self, hash_id: str) -> bool:
+        """
+        Checks if the 'trained' flag is set for a given hash ID.
+        
+        Parameters:
+        - hash_id: The SHA256 hash of the email.
+        
+        Returns:
+        - Boolean indicating if the email has been trained.
+        """
+        try:
+            query = "SELECT trained FROM email_hashes WHERE hash_id = %s"
+            self.cursor.execute(query, (hash_id,))
+            result = self.cursor.fetchone()
+            if result:
+                trained_flag = result[0]
+                logging.info(f"Retrieved 'trained' flag for hash ID {hash_id}: {trained_flag}")
+                return trained_flag
+            else:
+                logging.warning(f"No entry found for hash ID {hash_id}.")
+                return False
+        except MySQLdb.Error as e:
+            logging.error(f"Error checking 'trained' flag for hash ID {hash_id}: {e}")
+            return False
+    
 # Example usage
 # db = EmailDatabase(host="localhost", user="root", password="password", database="email_db")
 # db.add_email_hash("somehash", "spam", ["ham", "promotion"])

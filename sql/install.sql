@@ -5,6 +5,7 @@ CREATE TABLE email_hashes (
     hash_id CHAR(64) PRIMARY KEY,           -- SHA256 hash as a unique identifier
     classification_id VARCHAR(50) NOT NULL, -- Classification label (e.g., 'spam', 'ham')
     additional_classification_ids JSON DEFAULT NULL, -- JSON array for additional classification numbers
+    trained BOOLEAN DEFAULT FALSE,         -- Flag to indicate if the email has been trained
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Timestamp of when the hash was added
 );
 

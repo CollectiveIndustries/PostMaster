@@ -13,25 +13,60 @@ from lib.utils import extract_email_data, log_progress, interruptible_sleep
 
 # Refactor this class to use the PostOffice.Bulk_Move() method instead
 # TODO add hash lookup for cross checking mail lables
-def bulk_move(email_list: list[Email], src_folder, dest_folder):
-    total_mail = len(email_list)
-    start_time = time.time()
-    email_ids = []
-    # Connect
-    # Fetch Sequence Numbers
-    logging.info(f"Moving {total_mail} emails from {src_folder} to {dest_folder}")
-    for index, email in enumerate(email_list, start=1):
-        email_ids.append(email.uid)  # Extract email_id from the Email Object
-        if index % 100 == 0 or index == total_mail:
-            log_progress(index, total_mail, start_time)
-    try:
-        POBox.bulk_move(src_folder, dest_folder, email_ids)
-    except Exception as e:
-        logging.error(f"Failed to move batch {email_ids}: {e}")
+class MailProcessor:
+    def __init__(self, stop_event):
+        self.stop_event = stop_event
 
-        # Close/Logout
+    def batch_move(self, src_folder, dest_folder):
+        """
+        Generalized method to move emails from a source folder to a destination folder
+        in bulk, based on classification retrieved from the database.
+        """
+        start_time = time.time()
+        BulkOffice = PostOffice(self.stop_event)
+        db_bulk = EmailDatabase(
+            host=config.SQL_HOST,
+            user=config.SQL_USER,
+            password=config.SQL_PASSWORD,
+            database=config.SQL_DATABASE,
+            port=config.SQL_PORT
+        )
 
-    logging.info(f"Bulk move completed. {total_mail} emails processed from {src_folder} to {dest_folder}.")
+        try:
+            # Connect to the mail server and database
+            BulkOffice.connect()
+            tmp_mail_list = BulkOffice.fetch_emails(src_folder)
+
+            for email in tmp_mail_list:
+                # Get the classification for the email based on its hash
+                classification = db_bulk.get_classification(email.hash)
+
+                if classification is not None:
+                    classification_id, tags = classification
+
+                    # Determine the destination folder based on the classification ID
+                    dest_folder = db_bulk.get_folder_for_classification(classification_id)
+
+                    if dest_folder:
+                        # Move the email to the destination folder
+                        if db_bulk.is_trained(email.hash):
+                            BulkOffice.move(email.id, dest_folder)
+                            logging.info(f"Email {email.id} moved to {dest_folder} with classification ID {classification_id} and tags {tags}.")
+                        else:
+                            logging.warning(f"Skipping email {email.id} as it hasn't been trained yet.")
+                    else:
+                        logging.warning(f"No destination folder found for classification ID {classification_id}. Email {email.id} left in {src_folder}.")
+                else:
+                    logging.warning(f"Email {email.id} could not be classified. Leaving in {src_folder}.")
+        except Exception as e:
+            logging.error(f"An error occurred during bulk_move: {e}")
+        finally:
+            # Clean up resources
+            BulkOffice.disconnect()
+            db_bulk.close_connection()
+            end_time = time.time()
+
+            logging.info(f"Bulk move operation completed in {end_time - start_time:.2f} seconds.")
 
 # Usage Example
 if __name__ == "__main__":
@@ -91,16 +126,16 @@ if __name__ == "__main__":
                     host=config.SQL_HOST,
                     user=config.SQL_USER,
                     password=config.SQL_PASSWORD,
-                    database=config.SQL_DATABSE,
+                    database=config.SQL_DATABASE,
                     port=config.SQL_PORT
                     )
-                
+
                 dataStore.add_folder_and_classification(classification_id="0", folder_name="Ham")
                 dataStore.add_folder_and_classification(classification_id="1", folder_name="Spam")
                 dataStore.close()
 
                 # Define threads to fetch emails in parallel
-                def fetch_mail(mailbox_name, classification_number, result_container):
+                def fetch_mail(mailbox_name, classification_number, result_container: list[Email]):
                     """
                     Generic function to fetch emails and update the hash table.
 
@@ -116,7 +151,7 @@ if __name__ == "__main__":
                         host=config.SQL_HOST,
                         user=config.SQL_USER,
                         password=config.SQL_PASSWORD,
-                        database=config.SQL_DATABSE,
+                        database=config.SQL_DATABASE,
                         port=config.SQL_PORT
                         )
 
@@ -126,8 +161,10 @@ if __name__ == "__main__":
                     for e in emails:
                         HashTable.add_email(email_hash=e.hash, classification_number=classification_number)
                         db_thread.add_email_hash(e.hash,classification_number)
+                        if not db_thread.is_trained(e.hash):
+                            result_container.append(e)  # Store fetched emails in the provided container
+
                     HashTable.save_hash_table()
-                    result_container.extend(emails)  # Store fetched emails in the provided container
                     db_thread.close()
 
                 # Spawn threads dynamically
@@ -138,8 +175,7 @@ if __name__ == "__main__":
                 
                 for thread in threads:
                     thread.start()
-                
-                
+
                 for thread in threads:
                     thread.join()
 
@@ -167,8 +203,10 @@ if __name__ == "__main__":
 
                 # Move processed training data in parallel
                 logging.info("Starting bulk move operations for training data.")
-                spam_move_thread = threading.Thread(target=bulk_move, args=(Spam, spam_learn, spam_folder), name="Trainer-SpamBulkMove")
-                ham_move_thread = threading.Thread(target=bulk_move, args=(Ham, ham_learn, ham_folder), name="Trainer-HamBulkMove")
+                processor = MailProcessor(stop_event=stop_event)
+
+                spam_move_thread = threading.Thread(target=processor.batch_move, args=(spam_learn, spam_folder), name="Trainer-SpamBulkMove")
+                ham_move_thread = threading.Thread(target=processor.batch_move, args=(ham_learn, ham_folder), name="Trainer-HamBulkMove")
 
                 spam_move_thread.start()
                 ham_move_thread.start()
@@ -179,7 +217,7 @@ if __name__ == "__main__":
 
                 # Wait before retraining
                 logging.info(f"Finished processing training data. Waiting {scan_interval} seconds to retrain.")
-                interruptible_sleep(scan_interval,stop_event)
+                interruptible_sleep(scan_interval, stop_event)
                 sync_event.clear()
 
             except Exception as e:

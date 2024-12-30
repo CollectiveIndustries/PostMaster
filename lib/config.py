@@ -43,7 +43,7 @@ class conf:
         # MySQL Database settings for hashtable
         self.SQL_USER = CONFIG.get('MySQL','user', fallback='SpamVanquisher')
         self.SQL_HOST = CONFIG.get('MySQL','host', fallback='127.0.0.1')
-        self.SQL_DATABSE = CONFIG.get('MySQL','database', fallback='SpamVanquisher')
+        self.SQL_DATABASE = CONFIG.get('MySQL','database', fallback='SpamVanquisher')
         self.SQL_PASSWORD = CONFIG.get('MySQL','password')
         self.SQL_PORT = int(CONFIG.get('MySQL','port',fallback=3306))
 

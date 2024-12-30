@@ -15,7 +15,7 @@ from .utils import log_progress, load_failed_uids, save_failed_uids, interruptib
 from .locks import failed_uid_lock
 
 class Email:
-    def __init__(self, uid, raw_data):
+    def __init__(self, raw_data):
         # msg_data is the result of an IMAP fetch command
         if not raw_data or not isinstance(raw_data, tuple):
             raise ValueError("Invalid raw_data format. Expected a tuple.")
@@ -26,7 +26,6 @@ class Email:
         self.sender = self.get_sender(msg)
         self.recipient = self.get_recipient(msg)
         self.payload = self.get_payload(msg)
-        self.uid = uid
         self.classification = None
         self.hash = EmailHasher.generate_sha256sum(raw_data[1])
 
@@ -150,7 +149,7 @@ class PostOffice():
             email_ids = [e for e in email_ids if (mailbox, e) not in self._failed_uids or e not in self._failed_uids[mailbox]]
 
         total_emails = len(email_ids)
-        
+
         logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}'.")
         start_time = time.time()  # Record the start time for speed calculation
 
@@ -205,7 +204,7 @@ class PostOffice():
                 continue
 
             try:
-                email_obj = Email(email_id, raw_imap_msg_data[0])  # Pass the tuple to the Email object
+                email_obj = Email(raw_imap_msg_data[0])  # Pass the tuple to the Email object
                 email_objs.append(email_obj)
             except (TypeError, ValueError) as e:
                 logging.error(f"Error processing email UID {email_id}: {e}")
@@ -236,59 +235,48 @@ class PostOffice():
             logging.error(f"Failed to move email '{int(email_id)}'.")
         self.srv.close()
 
-    def bulk_move(self, source_folder, destination_folder, email_ids: list[str]):
-        """Moves multiple emails from one folder to another in bulk."""
+    def bulk_move(self, source_folder: str, destination_folder: str, email_ids: list[str]):
+        """
+        Moves multiple emails from one folder to another in bulk.
+
+        Parameters:
+        - source_folder: The folder to move emails from.
+        - destination_folder: The folder to move emails to.
+        - email_ids: A list of email UIDs as strings.
+        """
         try:
             logging.debug(f"Starting bulk move of {len(email_ids)} emails from '{source_folder}' to '{destination_folder}'.")
 
             # Ensure email IDs are strings for IMAP operations
-            email_ids_str = ",".join(uid.decode() for uid in email_ids if isinstance(uid, bytes))
+            email_ids_str = ",".join(uid.decode() if isinstance(uid, bytes) else uid for uid in email_ids)
 
-            # Connect to the source folder
-            self.select_box(source_folder,readonly=False)
+            # Select source folder
+            self.select_box(source_folder, readonly=False)
 
-            try:
-                # Copy emails to the destination folder
-                if self.capabilities and b"UIDPLUS" in self.capabilities:
-                    logging.debug(f"Moving email UID {email_ids} to {destination_folder} with UIDPLUS support.")
-                    result, copy_response = self.srv.uid('COPY', email_ids_str, destination_folder)
-                else:
-                    logging.debug(f"Moving email UID {email_ids} to {destination_folder} without UIDPLUS support.")
-                    result, copy_response = self.srv.copy(email_ids_str, destination_folder)
+            # Copy emails to destination folder
+            result, copy_response = self.srv.uid('COPY', email_ids_str, destination_folder)
+            if result != "OK":
+                raise IMAP4.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")
+            logging.debug(f"Copied {len(email_ids)} emails to '{destination_folder}' successfully.")
 
-                if result != "OK":
-                    logging.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")
-                    raise IMAP4.error(f"COPY command failed: {copy_response}")
+            # Mark emails as deleted in source folder
+            result, store_response = self.srv.uid("STORE", email_ids_str, "+FLAGS", "(\\Deleted)")
+            if result != "OK":
+                raise IMAP4.error(f"Failed to mark emails as deleted: {store_response}")
+            logging.debug(f"Marked {len(email_ids)} emails as deleted in '{source_folder}'.")
 
-                logging.debug(f"Copied {len(email_ids)} emails to '{destination_folder}' successfully.")
-
-                # Mark emails as deleted in the source folder
-                result, store_response = self.srv.uid("STORE", email_ids_str, "+FLAGS", "(\\Deleted)")
-                if result != "OK":
-                    logging.error(f"Failed to mark emails as deleted: {store_response}")
-                    raise IMAP4.error(f"STORE command failed: {store_response}")
-
-                logging.debug(f"Marked {len(email_ids)} emails as deleted in '{source_folder}'.")
-
-                # Expunge to permanently delete emails from the source folder
-                try:
-                    self.srv.expunge()
-                    logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{source_folder}' to '{destination_folder}'.")
-                except IMAP4.error as e:
-                    logging.error(f"Failed to expunge emails: {e}")
-                    raise
-
-            except IMAP4.error as e:
-                logging.error(f"IMAP error during bulk move operations: {e}")
-                raise
-            except Exception as e:
-                logging.error(f"Unexpected error during bulk move operations: {e}")
-                raise
+            # Expunge to permanently delete emails
+            self.srv.expunge()
+            logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{source_folder}' to '{destination_folder}'.")
 
         except IMAP4.error as e:
             logging.error(f"IMAP error during bulk move: {e}")
+            raise
+
         except Exception as e:
             logging.error(f"Unexpected error during bulk move: {e}")
+            raise
+
         finally:
             self.close()
 
