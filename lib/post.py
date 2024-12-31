@@ -388,6 +388,14 @@ class PostOffice():
             logging.error(f"An error occurred while fetching the total emails in {folder}: {e}", exc_info=True)
             return 0  # Return 0 if there is an error
 
+    def keep_alive(self):
+        try:
+            self.srv.noop()
+            logging.debug("Sent NOOP to keep the IMAP connection alive.")
+        except imaplib.IMAP4.abort as e:
+            logging.warning(f"IMAP connection aborted: {e}. Reconnecting...")
+            self.connect()  # Reconnect if the connection is lost
+
 class EmailHasher:
 
     @staticmethod

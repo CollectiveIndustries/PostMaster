@@ -151,29 +151,37 @@ if __name__ == "__main__":
                             batch_num += 1  # Track the current batch number
 
                             for email in batch:
-
                                 # Check if the email hash is already in the database
                                 if not db_thread.is_trained(email.X_GM_MSGID):
                                     db_thread.add_email_hash(email.hash, email.X_GM_MSGID, classification_number)
                                     batch_emails.append(email)
-
+                                elif db_thread.is_trained(email.X_GM_MSGID):
+                                    # Email is already trained but still in the source folder
+                                    logging.info(f"Email {email.X_GM_MSGID} is already trained but still in {mailbox_name}. Moving to {destination_folder}.")
+                                    MailBox.move(destination_folder, email.X_GM_MSGID)  # Move email to destination folder
+                            
                             if batch_emails:
                                 with model_lock:
                                     logging.info("Training model.")
                                     labels = [classification_number] * len(batch_emails)
                                     NeuralNet.train(batch_emails, labels=labels)
                                     logging.info(f"Trained on {len(batch_emails)} emails from batch {batch_num} of {total_batches}.")
-
+                                    MailBox.keep_alive()  # Send NOOP to keep the connection alive
+                            
                                     NeuralNet.save_model()
                                     logging.info(f"Model saved after batch {batch_num} of {total_batches}.")
-                                # Update Trained flag for batch
-                                for email in batch:
+                            
+                                # Update trained flag for batch
+                                for email in batch_emails:  # Only process emails that were newly trained
                                     db_thread.set_trained_flag(email.hash)
-
+                            
+                                # Move newly trained emails to the destination folder
                                 mailProc.batch_move(mailbox_name, destination_folder)
                                 logging.info(f"Moved {len(batch_emails)} emails to {destination_folder}.")
                             else:
-                                logging.info(f"No pending emails in {mailbox_name}. Training Skipped.")
+                                logging.info(f"No pending emails in {mailbox_name}. Training skipped.")
+                            
+                            logging.info(f"Fetching batch {batch_num+1} of {total_batches}.")
 
                     finally:
                         db_thread.close()
