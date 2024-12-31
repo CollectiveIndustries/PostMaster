@@ -5,7 +5,7 @@ import os
 import signal
 from lib.Daemon import DaemonThread
 from lib.config import config
-from lib.post import PostOffice, Email, EmailHasher
+from lib.post import PostOffice, Email
 from lib.logs import LogRotation
 from lib.MailNet import MailNet
 from lib.database import EmailDatabase
@@ -20,10 +20,12 @@ class MailProcessor:
     def batch_move(self, src_folder, dest_folder):
         """
         Generalized method to move emails from a source folder to a destination folder
-        in bulk, based on classification retrieved from the database.
+        in bulk, based on classification retrieved from the database. 
+        Ensures that only emails logged in the DB are moved.
         """
         start_time = time.time()
-        BulkOffice = PostOffice(self.stop_event)
+        BulkOffice = PostOffice(self.stop_event)  # Each thread creates its own connection
+        BulkOffice.connect()
         db_bulk = EmailDatabase(
             host=config.SQL_HOST,
             user=config.SQL_USER,
@@ -33,37 +35,34 @@ class MailProcessor:
         )
 
         try:
-            # Connect to the mail server and database
-            BulkOffice.connect()
-            tmp_mail_list = BulkOffice.fetch_emails(src_folder)
+            for batch in BulkOffice.fetch_batch(src_folder):
+                # Check if the email hash is already in the database
+                for email in batch:
+                    if db_bulk.is_trained(email.X_GM_MSGID):
+                        # Email is logged in the database, so we can proceed with classification
+                        classification = db_bulk.get_classification(email.X_GM_MSGID)
 
-            for email in tmp_mail_list:
-                # Get the classification for the email based on its hash
-                classification = db_bulk.get_classification(email.hash)
+                        if classification is not None:
+                            classification_id = classification[0]
 
-                if classification is not None:
-                    classification_id, tags = classification
+                            # Determine the destination folder based on the classification ID
+                            dest_folder = db_bulk.get_folder_for_classification(classification_id)
 
-                    # Determine the destination folder based on the classification ID
-                    dest_folder = db_bulk.get_folder_for_classification(classification_id)
-
-                    if dest_folder:
-                        # Move the email to the destination folder
-                        if db_bulk.is_trained(email.hash):
-                            BulkOffice.move(email.id, dest_folder)
-                            logging.info(f"Email {email.id} moved to {dest_folder} with classification ID {classification_id} and tags {tags}.")
+                            if dest_folder:
+                                # Move the email to the destination folder
+                                BulkOffice.move(src_folder, dest_folder, email.X_GM_MSGID)
+                                logging.info(f"Email {email.X_GM_MSGID} moved to {dest_folder} with classification ID {classification_id} and tags {tags}.")
+                            else:
+                                logging.warning(f"No destination folder found for classification ID {classification_id}. Email {email.X_GM_MSGID} left in {src_folder}.")
                         else:
-                            logging.warning(f"Skipping email {email.id} as it hasn't been trained yet.")
+                            logging.warning(f"Email {email.X_GM_MSGID} could not be classified. Leaving in {src_folder}.")
                     else:
-                        logging.warning(f"No destination folder found for classification ID {classification_id}. Email {email.id} left in {src_folder}.")
-                else:
-                    logging.warning(f"Email {email.id} could not be classified. Leaving in {src_folder}.")
+                        logging.warning(f"Email {email.X_GM_MSGID} is not logged in the database. Skipping move.")
         except Exception as e:
-            logging.error(f"An error occurred during bulk_move: {e}")
+            logging.error(f"An error occurred during bulk_move: {e}", exc_info=True)
         finally:
             # Clean up resources
-            BulkOffice.disconnect()
-            db_bulk.close_connection()
+            db_bulk.close()
             end_time = time.time()
 
             logging.info(f"Bulk move operation completed in {end_time - start_time:.2f} seconds.")
@@ -111,119 +110,98 @@ if __name__ == "__main__":
         logging.info("Log rotation thread stopped.")
 
     def Trainer(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
-        """Trainer thread that fetches emails, trains the neural network, and moves processed data."""
         scan_interval = scan_interval or config.SCAN_TIME
         logging.info("Training thread started.")
         logging.debug(f"sync_event ID: {id(sync_event)}")
 
+        model_lock = threading.RLock()  # Lock for model access
+
         while not stop_event.is_set():
             try:
-                NeuralNet.load_model()
-                logging.info("Model loaded for training.")
-                Spam, Ham = [], []
-                HashLock = threading.RLock()
-                dataStore = EmailDatabase(
-                    host=config.SQL_HOST,
-                    user=config.SQL_USER,
-                    password=config.SQL_PASSWORD,
-                    database=config.SQL_DATABASE,
-                    port=config.SQL_PORT
-                    )
+                with model_lock:
+                    NeuralNet.load_model()
+                    logging.info("Model loaded for training.")
 
-                dataStore.add_folder_and_classification(classification_id="0", folder_name="Ham")
-                dataStore.add_folder_and_classification(classification_id="1", folder_name="Spam")
-                dataStore.close()
+                def train_mailbox(mailbox_name, classification_number, destination_folder):
+                    nonlocal model_lock
 
-                # Define threads to fetch emails in parallel
-                def fetch_mail(mailbox_name, classification_number, result_container: list[Email]):
-                    """
-                    Generic function to fetch emails and update the hash table.
-
-                    Parameters:
-                    - mailbox_name: The mailbox to fetch emails from.
-                    - classification_number: Classification number for the emails (e.g., 1 for spam, 0 for ham).
-                    - result_container: A nonlocal variable to store the fetched emails.
-                    """
-                    nonlocal HashLock
-                    HashTable = EmailHasher(lock=HashLock)
-                    MailBox = PostOffice(StopEvent)
                     db_thread = EmailDatabase(
                         host=config.SQL_HOST,
                         user=config.SQL_USER,
                         password=config.SQL_PASSWORD,
                         database=config.SQL_DATABASE,
                         port=config.SQL_PORT
-                        )
+                    )
+                    mailProc = MailProcessor(stop_event)
 
-                    MailBox.connect()
-                    emails = MailBox.fetch_emails(mailbox_name)
-                    MailBox.logout()
-                    for e in emails:
-                        HashTable.add_email(email_hash=e.hash, classification_number=classification_number)
-                        db_thread.add_email_hash(e.hash,classification_number)
-                        if not db_thread.is_trained(e.hash):
-                            result_container.append(e)  # Store fetched emails in the provided container
+                    try:
+                        MailBox = PostOffice(StopEvent)  # PostOffice is thread-safe and connects in constructor
+                        MailBox.connect()
+                        db_thread.add_folder_and_classification(classification_number,destination_folder)
 
-                    HashTable.save_hash_table()
-                    db_thread.close()
+                        # Calculate the total number of emails and batches
+                        total_emails = MailBox.total_emails(mailbox_name)
+                        batch_size = 200
+                        total_batches = (total_emails // batch_size) + (1 if total_emails % batch_size != 0 else 0)
 
-                # Spawn threads dynamically
+                        logging.info(f"Processing {total_emails} emails in {total_batches} batches from {mailbox_name}.")
+
+                        batch_num = 0
+                        for batch in MailBox.fetch_batch(mailbox_name, batch_size=batch_size):  # Fetch batches as a generator
+                            batch_emails = []
+                            batch_num += 1  # Track the current batch number
+
+                            for email in batch:
+
+                                # Check if the email hash is already in the database
+                                if not db_thread.is_trained(email.X_GM_MSGID):
+                                    db_thread.add_email_hash(email.hash, email.X_GM_MSGID, classification_number)
+                                    batch_emails.append(email)
+
+                            if batch_emails:
+                                with model_lock:
+                                    logging.info("Training model.")
+                                    labels = [classification_number] * len(batch_emails)
+                                    NeuralNet.train(batch_emails, labels=labels)
+                                    logging.info(f"Trained on {len(batch_emails)} emails from batch {batch_num} of {total_batches}.")
+
+                                    NeuralNet.save_model()
+                                    logging.info(f"Model saved after batch {batch_num} of {total_batches}.")
+                                # Update Trained flag for batch
+                                for email in batch:
+                                    db_thread.set_trained_flag(email.hash)
+
+                                mailProc.batch_move(mailbox_name, destination_folder)
+                                logging.info(f"Moved {len(batch_emails)} emails to {destination_folder}.")
+                            else:
+                                logging.info(f"No pending emails in {mailbox_name}. Training Skipped.")
+
+                    finally:
+                        db_thread.close()
+                        MailBox.close()
+                        MailBox.logout()
+
                 threads = [
-                    threading.Thread(target=fetch_mail, args=(spam_learn, 1, Spam), name="Trainer-FetchSpam"),
-                    threading.Thread(target=fetch_mail, args=(ham_learn, 0, Ham), name="Trainer-FetchHam")
+                    threading.Thread(target=train_mailbox, args=(spam_learn, 1, spam_folder), name="Trainer-ProcessSpam"),
+                    threading.Thread(target=train_mailbox, args=(ham_learn, 0, ham_folder), name="Trainer-ProcessHam")
                 ]
-                
+
                 for thread in threads:
                     thread.start()
 
                 for thread in threads:
                     thread.join()
 
-                logging.info(f"Fetched {len(Spam)} spam emails and {len(Ham)} ham emails.")
-
-                # Prepare labels
-                SpamLabels = [1] * len(Spam)
-                HamLabels = [0] * len(Ham)
-
-                # Train the neural network
-                logging.info("Starting neural network training.")
-                NeuralNet.train(Spam, labels=SpamLabels)
-                logging.info(f"Spam training completed: {len(Spam)} processed.")
-
-                NeuralNet.train(Ham, labels=HamLabels)
-                logging.info(f"Ham training completed: {len(Ham)} processed.")
-
-                # Save the trained model
-                NeuralNet.save_model()
-                logging.info("Model saved successfully.")
-
-                # Notify classification task that training is complete
                 sync_event.set()
                 logging.debug("Thread sync event set.")
 
-                # Move processed training data in parallel
-                logging.info("Starting bulk move operations for training data.")
-                processor = MailProcessor(stop_event=stop_event)
-
-                spam_move_thread = threading.Thread(target=processor.batch_move, args=(spam_learn, spam_folder), name="Trainer-SpamBulkMove")
-                ham_move_thread = threading.Thread(target=processor.batch_move, args=(ham_learn, ham_folder), name="Trainer-HamBulkMove")
-
-                spam_move_thread.start()
-                ham_move_thread.start()
-
-                spam_move_thread.join()
-                ham_move_thread.join()
-                logging.info("All bulk move operations completed.")
-
-                # Wait before retraining
-                logging.info(f"Finished processing training data. Waiting {scan_interval} seconds to retrain.")
-                interruptible_sleep(scan_interval, stop_event)
-                sync_event.clear()
-
             except Exception as e:
-                logging.error(f"An error occurred in the training loop: {e}", exc_info=True)
+                logging.error(f"An error occurred in the Trainer thread: {e}", exc_info=True)
 
-        logging.info("Stop called! Shutting Trainer thread down.")
+            if scan_interval:
+                stop_event.wait(scan_interval)
+
+        logging.info("Trainer thread exiting.")
 
     def PostMan(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
         scan_interval = scan_interval or config.SCAN_TIME
@@ -240,23 +218,24 @@ if __name__ == "__main__":
 
             POBox = PostOffice(StopEvent)
             POBox.connect()
-            email_que = POBox.fetch_emails(config.INBOX)
 
             logging.info("Mail fetched running Classification.")
-            for email in email_que:
-                try:
-                    email.classification = NeuralNet.classify(extract_email_data(email))
-                except Exception as e:
-                    logging.error(f"Error classifying email {email.uid}: {e}", exc_info=True)
-                    email.classification = None  # Mark as unclassified
+            mail_count = 0
+            for batch in POBox.fetch_batch(config.INBOX):  # fetch_batch is now a generator yielding batches
+                for email in batch:  # Each batch is a list of emails
+                    try:
+                        email.classification = NeuralNet.classify(extract_email_data(email))
+                    except Exception as e:
+                        logging.error(f"Error classifying email {email.uid}: {e}", exc_info=True)
+                        email.classification = None  # Mark as unclassified
+                    mail_count += 1  # Increment mail count for each email processed
+            
+            logging.info(f"Total emails classified: {mail_count}")
+            logging.info(f"Sorting and moving {len(mail_count)} emails.")
 
-            logging.info(f"{len(email_que)} emails classified.")
-            logging.info(f"Sorting and moving {len(email_que)} emails.")
-
-            total_emails = len(email_que)
             start_time = time.time()
 
-            for index, mail in enumerate(email_que, start=1):
+            for index, mail in enumerate(mail_count, start=1):
                 # Log classification for debugging
                 logging.debug(f"Email ID {mail.uid} classified as {'Spam' if mail.classification > 0.5 else 'Ham'}.")
 
@@ -270,10 +249,10 @@ if __name__ == "__main__":
                     logging.warning(f"Email ID {mail.uid} could not be classified.")
 
                 # Log progress every 100 emails
-                if index % 100 == 0 or index == total_emails:
-                    log_progress(index,total_emails,start_time)
+                if index % 100 == 0 or index == mail_count:
+                    log_progress(index,mail_count,start_time)
 
-            logging.info(f"{len(email_que)} emails sorted and moved. Waiting for next scan event")
+            logging.info(f"{len(mail_count)} emails sorted and moved. Waiting for next scan event")
             interruptible_sleep(scan_interval,stop_event)
         logging.info("Stop Called! Shutting PostMan thread down!")
 

@@ -1,10 +1,15 @@
--- SQL Schema for Email Hash Storage and Classification
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS email_processing_log;
+DROP TABLE IF EXISTS classification_folders;
+DROP TABLE IF EXISTS classifications;
+DROP TABLE IF EXISTS email_hashes;
 
--- Table to store email hashes and their classifications
+-- Table to store email hashes, their classifications, and the X-GM-MSGID
 CREATE TABLE email_hashes (
     hash_id CHAR(64) PRIMARY KEY,           -- SHA256 hash as a unique identifier
     classification_id VARCHAR(50) NOT NULL, -- Classification label (e.g., 'spam', 'ham')
     additional_classification_ids JSON DEFAULT NULL, -- JSON array for additional classification numbers
+    X_GM_MSGID BIGINT UNSIGNED,             -- X-GM-MSGID for Gmail-specific email identification
     trained BOOLEAN DEFAULT FALSE,         -- Flag to indicate if the email has been trained
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Timestamp of when the hash was added
 );
@@ -40,3 +45,4 @@ CREATE TABLE email_processing_log (
 -- Optional indexes for performance
 CREATE INDEX idx_email_hashes_classification ON email_hashes (classification_id);
 CREATE INDEX idx_log_status ON email_processing_log (status);
+CREATE INDEX idx_email_hashes_x_gm_msgid ON email_hashes (X_GM_MSGID); -- Index for the X-GM-MSGID column

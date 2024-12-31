@@ -1,18 +1,15 @@
 import logging
 import imaplib
-import socket
 import time
 import email
-import sys
 import threading
-import json
 import hashlib
-import os
+import re
 from email.header import decode_header
 from imaplib import IMAP4
 from .config import config
-from .utils import log_progress, load_failed_uids, save_failed_uids, interruptible_sleep, ElapsedTimeFormat
-from .locks import failed_uid_lock
+from .utils import log_progress
+from .database import EmailDatabase
 
 class Email:
     def __init__(self, raw_data):
@@ -27,7 +24,41 @@ class Email:
         self.recipient = self.get_recipient(msg)
         self.payload = self.get_payload(msg)
         self.classification = None
+        self.X_GM_MSGID, self.msg_sequence, self.email_size = self.extract_message_parts(raw_data[0])
         self.hash = EmailHasher.generate_sha256sum(raw_data[1])
+
+    def extract_message_parts(self, raw_msg_data):
+        """Extracts X-GM-MSGID, message sequence number, and email size using regular expressions."""
+        # Define regex patterns for extracting the parts
+        msgid_pattern = rb"X-GM-MSGID (\d+)"
+        sequence_pattern = rb"^(\d+)"
+        size_pattern = rb"{(\d+)}"
+
+        msgid = None
+        msg_sequence = None
+        email_size = None
+
+        try:
+            # Search for the X-GM-MSGID
+            msgid_match = re.search(msgid_pattern, raw_msg_data)
+            if msgid_match:
+                msgid = msgid_match.group(1).decode('utf-8')
+
+            # Search for the message sequence number
+            sequence_match = re.search(sequence_pattern, raw_msg_data)
+            if sequence_match:
+                msg_sequence = sequence_match.group(1).decode('utf-8')
+
+            # Search for the email size
+            size_match = re.search(size_pattern, raw_msg_data)
+            if size_match:
+                email_size = size_match.group(1).decode('utf-8')
+
+            logging.debug(f"Extracted X-GM-MSGID: {msgid}, Sequence: {msg_sequence}, Size: {email_size}")
+        except Exception as e:
+            logging.error(f"Error extracting message parts: {e}")
+        
+        return msgid, msg_sequence, email_size
 
     def get_subject(self, msg):
         # Extract subject from the message
@@ -98,24 +129,27 @@ class PostOffice():
         self._StopEvent = event
         self.capabilities = None
         self._check_uidplus_support_()
-        self._failed_uids = load_failed_uids()
         self.srv = None 
+        self.database = EmailDatabase(
+                            host=config.SQL_HOST,
+                            user=config.SQL_USER,
+                            password=config.SQL_PASSWORD,
+                            database=config.SQL_DATABASE,
+                            port=config.SQL_PORT
+                        )
 
-    def connect(self, max_retries: int = 5, retry_interval: int = 30) -> None:
-        """Connects to the IMAP server and selects the mailbox."""
-        logging.debug("Attempting to connect to the IMAP server.")
-        attempts = 0
-        while attempts < max_retries:
-            try:
-                self.srv = imaplib.IMAP4_SSL(self.url, self.port)
-                self.srv.login(self.email, self.password)
-                return
-            except (socket.gaierror, IMAP4.error) as e:
-                logging.error(f"IMAP connection error (attempt {attempts + 1}): {e}")
-                interruptible_sleep(retry_interval,self._StopEvent)
-                attempts += 1
-        logging.critical("Max retries reached. Exiting...")
-        sys.exit(1)
+    def connect(self):
+        """
+        Establish a connection to the IMAP server.
+        """
+        try:
+            self.srv = imaplib.IMAP4_SSL(self.url, self.port)
+            self.srv.login(self.email, self.password)
+            logging.info(f"Connected to IMAP server {self.url} on port {self.port}.")
+        except Exception as e:
+            self.srv = None  # Ensure srv is reset to None on failure
+            logging.error(f"Failed to connect to IMAP server: {e}", exc_info=True)
+            raise
 
     def close(self):
         self.srv.close()
@@ -132,126 +166,129 @@ class PostOffice():
         except IMAP4.error as e:
             logging.error(f"IMAP connection error selecting mailbox: {e}")
 
-    def fetch_emails(self, mailbox: str) -> list[Email]:
-        """Fetches emails from the specified mailbox."""
+    def fetch_batch(self, mailbox: str, batch_size: int = 100) -> list[Email]:  # type: ignore
+        """Fetches emails from the specified mailbox in batches, including their X-GM-MSGID."""
         self.srv.select(mailbox, readonly=True)
-        result, data = self.srv.uid('search', None, "ALL")
+        result, data = self.srv.search(None, "ALL")
 
         if result != "OK" or not data or not data[0]:
             logging.warning(f"No emails found in mailbox '{mailbox}'.")
             self.close()
-            return []
+            return
 
         email_ids = data[0].split()
-        email_objs = []
-        # strip out the bad UIDs
-        with failed_uid_lock:
-            email_ids = [e for e in email_ids if (mailbox, e) not in self._failed_uids or e not in self._failed_uids[mailbox]]
-
         total_emails = len(email_ids)
+        logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}' in batches of {batch_size}.")
+        start_time = time.time()
 
-        logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}'.")
-        start_time = time.time()  # Record the start time for speed calculation
+        for batch_start in range(0, total_emails, batch_size):
+            batch = email_ids[batch_start:batch_start + batch_size]
+            email_objs = []
 
-        for count, email_id in enumerate(email_ids, start=1):
-            if self._StopEvent.is_set():
-                logging.info("Stop signal received. Exiting")
-                break
+            for count, email_id in enumerate(batch, start=1):
+                if self._StopEvent.is_set():
+                    logging.info("Stop signal received. Exiting batch fetch.")
+                    return
 
-            retry_count = 3
-            for attempt in range(retry_count):
-                if self.capabilities and b"UIDPLUS" in self.capabilities:
-                    # Fetch using UID if UIDPLUS is supported
-                    fetch_command = "(RFC822)"
-                    fetch_method = self.srv.uid
-                    fetch_param = email_id  # UID-based fetch
-                    log_identifier = f"UID {email_id}"
+                retry_count = 3
+                for attempt in range(retry_count):
+                    logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email sequence number {email_id}.")
+                    try:
+                        # Fetch both the raw email content and the X-GM-MSGID
+                        result, raw_imap_msg_data = self.srv.fetch(email_id, "(RFC822 X-GM-MSGID)")
+                        if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
+                            logging.debug(f"Successfully fetched email sequence number {email_id}.")
+                            break
+                    except Exception as e:
+                        logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
+                    time.sleep(2)
                 else:
-                    # Fetch using sequence number if UIDPLUS is not supported
-                    fetch_command = "(RFC822)"
-                    fetch_method = self.srv.fetch
-                    fetch_param = email_id  # Sequence number-based fetch
-                    log_identifier = f"sequence number {email_id}"
+                    logging.error(f"Failed to fetch email sequence number {email_id} after {retry_count} attempts.")
+                    continue
 
-                logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email using {log_identifier} with command {fetch_command}.")
+                if not isinstance(raw_imap_msg_data[0], tuple):
+                    logging.error(f"Invalid data format for email sequence number {email_id}. Expected a tuple but got: {type(raw_imap_msg_data[0])}")
+                    continue
 
                 try:
-                    result, raw_imap_msg_data = fetch_method(fetch_param, fetch_command)
+                    # Pass the raw message data and X-GM-MSGID to the Email object
+                    email_obj = Email(raw_imap_msg_data[0])
+                    email_objs.append(email_obj)
+                except (TypeError, ValueError) as e:
+                    logging.error(f"Error processing email sequence number {email_id}: {e}")
+                    logging.debug(f"Raw message data: {raw_imap_msg_data}")
 
-                    if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
-                        logging.debug(f"Successfully fetched email using {log_identifier}.")
-                        break  # Exit loop on successful fetch
-                except Exception as e:
-                    logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
+            log_progress(batch_start + len(batch), total_emails, start_time)
+            yield email_objs
 
-                time.sleep(2)  # Wait 2 seconds before retrying
-            else:
-                logging.error(f"Failed to fetch email UID {email_id} after {retry_count} attempts: {raw_imap_msg_data}")
-                if mailbox not in self._failed_uids:
-                    self._failed_uids[mailbox] = set()
-                self._failed_uids[mailbox].add(email_id.decode('utf-8'))
-
-            # log progress after fetch
-            if count % 100 == 0 or count == total_emails:
-                log_progress(count, total_emails, start_time)
-
-            if not isinstance(raw_imap_msg_data[0], tuple):
-                logging.error(f"Invalid data format for email UID {email_id}. Expected a tuple but got: {type(raw_imap_msg_data[0])}")
-                continue
-
-            if result != "OK":
-                logging.warning(f"Fetch result for email UID {email_id} was not 'OK'. Result: {result}")
-                continue
-
-            try:
-                email_obj = Email(raw_imap_msg_data[0])  # Pass the tuple to the Email object
-                email_objs.append(email_obj)
-            except (TypeError, ValueError) as e:
-                logging.error(f"Error processing email UID {email_id}: {e}")
-                logging.debug(f"Raw message data: {raw_imap_msg_data}")
-
-        logging.info(f"Fetched {len(email_objs)} emails from mailbox '{mailbox}'. Time elapsed: {ElapsedTimeFormat(start_time, time.time())}")
-        save_failed_uids(self._failed_uids)
-        self.srv.close()
-        return email_objs
-
-    def move(self, source_folder: str, destination_folder: str, email_id: str):
-        """Moves a single email from one folder to another."""
-        logging.debug(f"Moving email '{int(email_id)}' from '{source_folder}' to '{destination_folder}'.")
+    def move(self, source_folder: str, destination_folder: str, x_gm_msgid: str):
+        """
+        Moves a single email from one folder to another using X-GM-MSGID.
+        """
+        logging.debug(f"Moving email with X-GM-MSGID '{x_gm_msgid}' from '{source_folder}' to '{destination_folder}'.")
         self.select_box(source_folder, readonly=False)
 
-        if self.capabilities and b"UIDPLUS" in self.capabilities:
-            logging.debug(f"Moving email UID {email_id} to {destination_folder} with UIDPLUS support.")
-            result = self.srv.uid('COPY', email_id.decode(), destination_folder)
-        else:
-            logging.debug(f"Moving email UID {email_id} to {destination_folder} without UIDPLUS support.")
-            result = self.srv.copy(email_id.decode(), destination_folder)
+        try:
+            # Search for the email in the source folder by X-GM-MSGID
+            result, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+            if result != "OK" or not data or not data[0]:
+                logging.error(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{source_folder}'.")
+                return
 
-        if result[0] == "OK":
-            self.srv.store(str(email_id), '+FLAGS', '\\Deleted')
-            self.srv.expunge()
-            logging.debug(f"Email '{int(email_id)}' moved successfully.")
-        else:
-            logging.error(f"Failed to move email '{int(email_id)}'.")
-        self.srv.close()
+            # Extract the email ID
+            email_id = data[0].split()[0]
+            logging.debug(f"Found email ID '{email_id}' for X-GM-MSGID '{x_gm_msgid}'.")
 
-    def bulk_move(self, source_folder: str, destination_folder: str, email_ids: list[str]):
+            # Use the email ID to move the email
+            if self.capabilities and b"UIDPLUS" in self.capabilities:
+                logging.debug(f"Moving email UID {email_id} to {destination_folder} with UIDPLUS support.")
+                result = self.srv.uid('COPY', email_id.decode(), destination_folder)
+            else:
+                logging.debug(f"Moving email UID {email_id} to {destination_folder} without UIDPLUS support.")
+                result = self.srv.copy(email_id.decode(), destination_folder)
+
+            if result[0] == "OK":
+                self.srv.store(email_id, '+FLAGS', '\\Deleted')
+                self.srv.expunge()
+                logging.debug(f"Email with X-GM-MSGID '{x_gm_msgid}' moved successfully.")
+            else:
+                logging.error(f"Failed to move email with X-GM-MSGID '{x_gm_msgid}'.")
+        except Exception as e:
+            logging.error(f"Error while moving email with X-GM-MSGID '{x_gm_msgid}': {e}", exc_info=True)
+        finally:
+            self.srv.close()
+
+    def bulk_move(self, source_folder: str, destination_folder: str, x_gm_msgids: list[str]):
         """
-        Moves multiple emails from one folder to another in bulk.
+        Moves multiple emails from one folder to another in bulk using X-GM-MSGID.
 
         Parameters:
         - source_folder: The folder to move emails from.
         - destination_folder: The folder to move emails to.
-        - email_ids: A list of email UIDs as strings.
+        - x_gm_msgids: A list of email X-GM-MSGIDs as strings.
         """
         try:
-            logging.debug(f"Starting bulk move of {len(email_ids)} emails from '{source_folder}' to '{destination_folder}'.")
-
-            # Ensure email IDs are strings for IMAP operations
-            email_ids_str = ",".join(uid.decode() if isinstance(uid, bytes) else uid for uid in email_ids)
+            logging.debug(f"Starting bulk move of {len(x_gm_msgids)} emails from '{source_folder}' to '{destination_folder}'.")
 
             # Select source folder
             self.select_box(source_folder, readonly=False)
+
+            email_ids = []
+            for x_gm_msgid in x_gm_msgids:
+                # Search for the email ID in the source folder by X-GM-MSGID
+                result, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+                if result == "OK" and data and data[0]:
+                    email_ids.append(data[0].split()[0])
+                    logging.debug(f"Found email ID '{data[0].split()[0]}' for X-GM-MSGID '{x_gm_msgid}'.")
+                else:
+                    logging.warning(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{source_folder}'.")
+
+            if not email_ids:
+                logging.warning("No emails found for the provided X-GM-MSGIDs. Aborting bulk move.")
+                return
+
+            # Ensure email IDs are strings for IMAP operations
+            email_ids_str = ",".join(email_ids)
 
             # Copy emails to destination folder
             result, copy_response = self.srv.uid('COPY', email_ids_str, destination_folder)
@@ -309,52 +346,28 @@ class PostOffice():
         except Exception as e:
             logging.critical(f"Unexpected error: {e}")
         return False
-    
-class EmailHasher:
-    def __init__(self, table_file='email_hash_table.json', lock=None):
-        self.table_file = f"{config.TRAINING_DATA_PATH}/{table_file}"
-        self.lock = lock or threading.RLock()  # Use the provided lock or create a new one
 
-        # Load the existing table from disk if it exists
-        if os.path.exists(self.table_file):
-            with open(self.table_file, 'r') as f:
-                self.hash_table = json.load(f)
-        else:
-            self.hash_table = {}
+    def total_emails(self, folder):
+        """
+        Returns the total number of emails in the specified folder.
+        """
+        try:
+            # Fetch the status of the folder
+            status = self.srv.status(folder, "(MESSAGES)")
 
-    def save_hash_table(self):
-        """
-        Save the hash table to disk in JSON format.
-        """
-        with self.lock:  # Acquire the lock before writing
-            with open(self.table_file, 'w') as f:
-                json.dump(self.hash_table, f, indent=4)
-
-    def load_hash_table(self):
-        """
-        Load the hash table from disk if the file exists.
-        """
-        with self.lock:  # Acquire the lock before reading
-            if os.path.exists(self.table_file):
-                with open(self.table_file, 'r') as f:
-                    self.hash_table = json.load(f)
+            # Extract the numeric value for total messages using regex
+            match = re.search(r'MESSAGES (\d+)', status[1][0].decode())
+            if match:
+                num_emails = int(match.group(1))  # Extracted number from regex
+                return num_emails
             else:
-                self.hash_table = {}
+                raise ValueError("Couldn't extract the number of messages from the server response.")
 
-    def add_email(self, email_hash, classification_number):
-        """
-        Add an email hash and its classification to the hash table.
-        """
-        with self.lock:  # Acquire the lock before modifying the hash table
-            self.hash_table[email_hash] = classification_number
-            self.save_hash_table()
+        except Exception as e:
+            logging.error(f"An error occurred while fetching the total emails in {folder}: {e}", exc_info=True)
+            return 0  # Return 0 if there is an error
 
-    def get_classification(self, email_content):
-        """
-        Get the classification number for an email hash.
-        """
-        email_hash = self.generate_sha256sum(email_content)
-        return self.hash_table.get(email_hash, None)
+class EmailHasher:
 
     @staticmethod
     def generate_sha256sum(email_content) -> str:
