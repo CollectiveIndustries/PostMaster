@@ -24,7 +24,7 @@ class MailProcessor:
         Ensures that only emails logged in the DB are moved.
         """
         start_time = time.time()
-        BulkOffice = PostOffice(self.stop_event)  # Each thread creates its own connection
+        BulkOffice = PostOffice(self.stop_event, src_folder)  # Each thread creates its own connection
         BulkOffice.connect()
         db_bulk = EmailDatabase(
             host=config.SQL_HOST,
@@ -35,7 +35,7 @@ class MailProcessor:
         )
 
         try:
-            for batch in BulkOffice.fetch_batch(src_folder):
+            for batch in BulkOffice.fetch_batch(config.BATCH_SIZE):
                 # Check if the email hash is already in the database
                 for email in batch:
                     if db_bulk.is_trained(email.X_GM_MSGID):
@@ -50,8 +50,8 @@ class MailProcessor:
 
                             if dest_folder:
                                 # Move the email to the destination folder
-                                BulkOffice.move(src_folder, dest_folder, email.X_GM_MSGID)
-                                logging.info(f"Email {email.X_GM_MSGID} moved to {dest_folder} with classification ID {classification_id} and tags {tags}.")
+                                BulkOffice.move(dest_folder, email.X_GM_MSGID)
+                                logging.debug(f"Email {email.X_GM_MSGID} moved to {dest_folder} with classification ID {classification_id}.")
                             else:
                                 logging.warning(f"No destination folder found for classification ID {classification_id}. Email {email.X_GM_MSGID} left in {src_folder}.")
                         else:
@@ -135,19 +135,18 @@ if __name__ == "__main__":
                     mailProc = MailProcessor(stop_event)
 
                     try:
-                        MailBox = PostOffice(StopEvent)  # PostOffice is thread-safe and connects in constructor
+                        MailBox = PostOffice(StopEvent, mailbox_name)  # PostOffice is thread-safe and connects in constructor
                         MailBox.connect()
                         db_thread.add_folder_and_classification(classification_number,destination_folder)
 
                         # Calculate the total number of emails and batches
                         total_emails = MailBox.total_emails(mailbox_name)
-                        batch_size = 200
-                        total_batches = (total_emails // batch_size) + (1 if total_emails % batch_size != 0 else 0)
+                        total_batches = (total_emails // config.BATCH_SIZE) + (1 if total_emails % config.BATCH_SIZE != 0 else 0)
 
                         logging.info(f"Processing {total_emails} emails in {total_batches} batches from {mailbox_name}.")
 
                         batch_num = 0
-                        for batch in MailBox.fetch_batch(mailbox_name, batch_size=batch_size):  # Fetch batches as a generator
+                        for batch in MailBox.fetch_batch(batch_size=config.BATCH_SIZE):  # Fetch batches as a generator
                             batch_emails = []
                             batch_num += 1  # Track the current batch number
 
@@ -216,12 +215,12 @@ if __name__ == "__main__":
             NeuralNet.load_model()
             logging.info(f"Model loaded for classification. fetching new mail from {config.INBOX}")
 
-            POBox = PostOffice(StopEvent)
+            POBox = PostOffice(StopEvent,config.INBOX)
             POBox.connect()
 
             logging.info("Mail fetched running Classification.")
             mail_count = 0
-            for batch in POBox.fetch_batch(config.INBOX):  # fetch_batch is now a generator yielding batches
+            for batch in POBox.fetch_batch(config.BATCH_SIZE):  # fetch_batch is now a generator yielding batches
                 for email in batch:  # Each batch is a list of emails
                     try:
                         email.classification = NeuralNet.classify(extract_email_data(email))
@@ -229,7 +228,7 @@ if __name__ == "__main__":
                         logging.error(f"Error classifying email {email.uid}: {e}", exc_info=True)
                         email.classification = None  # Mark as unclassified
                     mail_count += 1  # Increment mail count for each email processed
-            
+
             logging.info(f"Total emails classified: {mail_count}")
             logging.info(f"Sorting and moving {len(mail_count)} emails.")
 

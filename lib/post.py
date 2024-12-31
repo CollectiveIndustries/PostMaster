@@ -117,7 +117,7 @@ class Email:
         return header
 
 class PostOffice():
-    def __init__(self, event: threading.Event):
+    def __init__(self, event: threading.Event, mailbox: str):
         logging.info("Initializing PostOffice.")
 
         # Email settings
@@ -125,11 +125,11 @@ class PostOffice():
         self.password = config.PASSWORD
         self.url = config.IMAP_URL
         self.port = int(config.IMAP_PORT)
-        self.inbox = config.INBOX
         self._StopEvent = event
         self.capabilities = None
         self._check_uidplus_support_()
-        self.srv = None 
+        self.srv = None
+        self.mailbox = mailbox
         self.database = EmailDatabase(
                             host=config.SQL_HOST,
                             user=config.SQL_USER,
@@ -158,27 +158,47 @@ class PostOffice():
     def logout(self):
         self.srv.logout()
         logging.info("Logged out of IMAP server.")
-    
-    def select_box(self, mailbox: str, readonly: bool = True ):
+
+    def reconnect(self):
+        """
+        Ensure the IMAP connection is active and in the correct state.
+        Reconnect and re-select the folder if necessary.
+        """
         try:
-            self.srv.select(mailbox, readonly) # DO NOT flag mail as read.
-            logging.debug(f"Successfully connected to mailbox '{mailbox}'.")
+            # Check if the connection is active
+            if self.srv is None or self.srv.state not in ['SELECTED', 'AUTH']:
+                logging.warning(f"IMAP connection is in state '{self.srv.state if self.srv else 'None'}'. Reconnecting...")
+                self.connect()
+
+            # Check if the folder is selected
+            if self.srv.state != 'SELECTED':
+                self.srv.select(self.mailbox)  # Ensure the correct folder is selected
+                logging.info(f"Folder '{self.mailbox}' selected successfully.")
+                return True
+        except imaplib.IMAP4.error as e:
+            logging.error(f"Failed to reconnect or select folder '{self.mailbox}': {e}")
+            return False
+
+    def select_box(self,readonly: bool = True ):
+        try:
+            self.srv.select(self.mailbox, readonly) # DO NOT flag mail as read.
+            logging.debug(f"Successfully connected to mailbox '{self.mailbox}'.")
         except IMAP4.error as e:
             logging.error(f"IMAP connection error selecting mailbox: {e}")
 
-    def fetch_batch(self, mailbox: str, batch_size: int = 100) -> list[Email]:  # type: ignore
+    def fetch_batch(self, batch_size: int) -> list[Email]:  # type: ignore
         """Fetches emails from the specified mailbox in batches, including their X-GM-MSGID."""
-        self.srv.select(mailbox, readonly=True)
+        self.srv.select(self.mailbox, readonly=True)
         result, data = self.srv.search(None, "ALL")
 
         if result != "OK" or not data or not data[0]:
-            logging.warning(f"No emails found in mailbox '{mailbox}'.")
+            logging.warning(f"No emails found in mailbox '{self.mailbox}'.")
             self.close()
             return
 
         email_ids = data[0].split()
         total_emails = len(email_ids)
-        logging.info(f"Fetching ({total_emails}) emails from mailbox '{mailbox}' in batches of {batch_size}.")
+        logging.info(f"Fetching ({total_emails}) emails from mailbox '{self.mailbox}' in batches of {batch_size}.")
         start_time = time.time()
 
         for batch_start in range(0, total_emails, batch_size):
@@ -195,7 +215,8 @@ class PostOffice():
                     logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email sequence number {email_id}.")
                     try:
                         # Fetch both the raw email content and the X-GM-MSGID
-                        result, raw_imap_msg_data = self.srv.fetch(email_id, "(RFC822 X-GM-MSGID)")
+                        self.reconnect()
+                        result, raw_imap_msg_data = self.srv.fetch(email_id, "(RFC822 X-GM-MSGID)") # BUG keep alive
                         if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
                             logging.debug(f"Successfully fetched email sequence number {email_id}.")
                             break
@@ -221,18 +242,18 @@ class PostOffice():
             log_progress(batch_start + len(batch), total_emails, start_time)
             yield email_objs
 
-    def move(self, source_folder: str, destination_folder: str, x_gm_msgid: str):
+    def move(self, destination_folder: str, x_gm_msgid: str):
         """
         Moves a single email from one folder to another using X-GM-MSGID.
         """
-        logging.debug(f"Moving email with X-GM-MSGID '{x_gm_msgid}' from '{source_folder}' to '{destination_folder}'.")
-        self.select_box(source_folder, readonly=False)
+        logging.debug(f"Moving email with X-GM-MSGID '{x_gm_msgid}' from '{self.mailbox}' to '{destination_folder}'.")
+        self.select_box(readonly=False)
 
         try:
             # Search for the email in the source folder by X-GM-MSGID
             result, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
             if result != "OK" or not data or not data[0]:
-                logging.error(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{source_folder}'.")
+                logging.error(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
                 return
 
             # Extract the email ID
@@ -258,7 +279,7 @@ class PostOffice():
         finally:
             self.srv.close()
 
-    def bulk_move(self, source_folder: str, destination_folder: str, x_gm_msgids: list[str]):
+    def bulk_move(self, destination_folder: str, x_gm_msgids: list[str]):
         """
         Moves multiple emails from one folder to another in bulk using X-GM-MSGID.
 
@@ -268,10 +289,10 @@ class PostOffice():
         - x_gm_msgids: A list of email X-GM-MSGIDs as strings.
         """
         try:
-            logging.debug(f"Starting bulk move of {len(x_gm_msgids)} emails from '{source_folder}' to '{destination_folder}'.")
+            logging.debug(f"Starting bulk move of {len(x_gm_msgids)} emails from '{self.mailbox}' to '{destination_folder}'.")
 
             # Select source folder
-            self.select_box(source_folder, readonly=False)
+            self.select_box(self.mailbox, readonly=False)
 
             email_ids = []
             for x_gm_msgid in x_gm_msgids:
@@ -281,7 +302,7 @@ class PostOffice():
                     email_ids.append(data[0].split()[0])
                     logging.debug(f"Found email ID '{data[0].split()[0]}' for X-GM-MSGID '{x_gm_msgid}'.")
                 else:
-                    logging.warning(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{source_folder}'.")
+                    logging.warning(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
 
             if not email_ids:
                 logging.warning("No emails found for the provided X-GM-MSGIDs. Aborting bulk move.")
@@ -300,11 +321,11 @@ class PostOffice():
             result, store_response = self.srv.uid("STORE", email_ids_str, "+FLAGS", "(\\Deleted)")
             if result != "OK":
                 raise IMAP4.error(f"Failed to mark emails as deleted: {store_response}")
-            logging.debug(f"Marked {len(email_ids)} emails as deleted in '{source_folder}'.")
+            logging.debug(f"Marked {len(email_ids)} emails as deleted in '{self.mailbox}'.")
 
             # Expunge to permanently delete emails
             self.srv.expunge()
-            logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{source_folder}' to '{destination_folder}'.")
+            logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{self.mailbox}' to '{destination_folder}'.")
 
         except IMAP4.error as e:
             logging.error(f"IMAP error during bulk move: {e}")
