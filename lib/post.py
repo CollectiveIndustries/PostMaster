@@ -12,6 +12,70 @@ from .config import config
 from .utils import log_progress
 from .database import EmailDatabase
 
+# TODO finish working on Email Que and training/sorting logic.
+# Steps are in order for each thread. methods are provided in the propper classes.
+# Trainer Threads (Spam/Ham Learn)
+# 
+#     Fetch all x_gm_msgid with the PostOffice class:
+#         The trainer threads will retrieve a list of message IDs (x_gm_msgid) that need
+#         to be processed (i.e., those that are not yet trained).
+# 
+#     Update mail_que in the EmailDatabase class:
+#         The trainer threads update the mail_que table in the database to make sure the
+#         message IDs are added, tracking which messages are yet to be processed.
+# 
+#     Set up a loop to fetch from mail_que in the EmailDatabase class:
+#         The trainer threads will continuously fetch batches of message IDs from mail_que,
+#         where the unprocessed (trained_flag != 1) messages are queued.
+# 
+#     Fetch batch using x_gm_msgid from PostOffice:
+#         For each batch of x_gm_msgid fetched, the trainer threads will use the PostOffice
+#         class to retrieve the actual email content associated with those IDs.
+# 
+#     Train batch using MailNet:
+#         After fetching the batch, the trainer threads will train the machine learning model
+#         (MailNet) on the batch of emails (either as spam or ham).
+# 
+#     Move batch with PostOffice class:
+#         Once the training is complete, the trainer threads will use the PostOffice class to
+#         move the processed messages to the appropriate folder (e.g., spam_learn or ham_learn).
+# 
+#     Set trained_flag in the EmailDatabase class:
+#         After processing and training, the trained_flag for those message IDs is set to 1,
+#         marking them as trained in the database.
+# 
+#     Pop from mail_que in EmailDatabase:
+#         Once a message has been trained, it is "popped" off the mail_que (deleted) to indicate that it
+#         has been processed and no longer needs to be retrained.
+# 
+# Classification/Sorting Thread
+# 
+#     wait() for trainer to set():
+#         The classification thread will wait for the trainer to complete its work and set the necessary
+#         flag or signal that training is finished for the batch.
+# 
+#     Fetch all x_gm_msgid with the PostOffice class:
+#         Once the trainer is done, the classification thread will fetch all message IDs that need to be
+#         classified (based on the messages left in the queue).
+# 
+#     Update mail_que in the EmailDatabase class:
+#         The classification thread will update the mail_que to ensure that the classification queue is up-to-date.
+# 
+#     Set up a loop to fetch from mail_que in the EmailDatabase class:
+#         Similar to the trainer thread, the classification thread will loop to fetch the next batch of
+#         unprocessed emails for classification.
+# 
+#     Fetch batch using x_gm_msgid from PostOffice:
+#         The classification thread will retrieve the email content associated with the fetched
+#         x_gm_msgid using the PostOffice class.
+# 
+#     Classify batch using MailNet:
+#         After fetching the batch of emails, the classification thread will classify the emails using the
+#         MailNet model, sorting them into appropriate categories (e.g., spam or ham).
+# 
+#     Pop from mail_que in EmailDatabase:
+#         Once the emails are classified, the thread will "pop" them from the queue, marking them as processed.
+
 class Email:
     def __init__(self, raw_data: tuple):
         # msg_data is the result of an IMAP fetch command
