@@ -13,59 +13,6 @@ from lib.utils import extract_email_data, log_progress, interruptible_sleep
 
 # Refactor this class to use the PostOffice.Bulk_Move() method instead
 # TODO add hash lookup for cross checking mail lables
-class MailProcessor:
-    def __init__(self, stop_event):
-        self.stop_event = stop_event
-
-    def batch_move(self, src_folder, dest_folder):
-        """
-        Generalized method to move emails from a source folder to a destination folder
-        in bulk, based on classification retrieved from the database. 
-        Ensures that only emails logged in the DB are moved.
-        """
-        start_time = time.time()
-        BulkOffice = PostOffice(self.stop_event, src_folder)  # Each thread creates its own connection
-        BulkOffice.connect()
-        db_bulk = EmailDatabase(
-            host=config.SQL_HOST,
-            user=config.SQL_USER,
-            password=config.SQL_PASSWORD,
-            database=config.SQL_DATABASE,
-            port=config.SQL_PORT
-        )
-
-        try:
-            for batch in BulkOffice.fetch_batch(config.BATCH_SIZE):
-                # Check if the email hash is already in the database
-                for email in batch:
-                    if db_bulk.is_trained(email.X_GM_MSGID):
-                        # Email is logged in the database, so we can proceed with classification
-                        classification = db_bulk.get_classification(email.X_GM_MSGID)
-
-                        if classification is not None:
-                            classification_id = classification[0]
-
-                            # Determine the destination folder based on the classification ID
-                            dest_folder = db_bulk.get_folder_for_classification(classification_id)
-
-                            if dest_folder:
-                                # Move the email to the destination folder
-                                BulkOffice.move(dest_folder, email.X_GM_MSGID)
-                                logging.debug(f"Email {email.X_GM_MSGID} moved to {dest_folder} with classification ID {classification_id}.")
-                            else:
-                                logging.warning(f"No destination folder found for classification ID {classification_id}. Email {email.X_GM_MSGID} left in {src_folder}.")
-                        else:
-                            logging.warning(f"Email {email.X_GM_MSGID} could not be classified. Leaving in {src_folder}.")
-                    else:
-                        logging.warning(f"Email {email.X_GM_MSGID} is not logged in the database. Skipping move.")
-        except Exception as e:
-            logging.error(f"An error occurred during bulk_move: {e}", exc_info=True)
-        finally:
-            # Clean up resources
-            db_bulk.close()
-            end_time = time.time()
-
-            logging.info(f"Bulk move operation completed in {end_time - start_time:.2f} seconds.")
 
 # Usage Example
 if __name__ == "__main__":
@@ -132,7 +79,6 @@ if __name__ == "__main__":
                         database=config.SQL_DATABASE,
                         port=config.SQL_PORT
                     )
-                    mailProc = MailProcessor(stop_event)
 
                     try:
                         MailBox = PostOffice(StopEvent, mailbox_name)  # PostOffice is thread-safe and connects in constructor
@@ -147,6 +93,7 @@ if __name__ == "__main__":
 
                         batch_num = 0
                         for batch in MailBox.fetch_batch(batch_size=config.BATCH_SIZE):  # Fetch batches as a generator
+
                             batch_emails = []
                             batch_num += 1  # Track the current batch number
 
@@ -159,7 +106,7 @@ if __name__ == "__main__":
                                     # Email is already trained but still in the source folder
                                     logging.info(f"Email {email.X_GM_MSGID} is already trained but still in {mailbox_name}. Moving to {destination_folder}.")
                                     MailBox.move(destination_folder, email.X_GM_MSGID)  # Move email to destination folder
-                            
+
                             if batch_emails:
                                 with model_lock:
                                     logging.info("Training model.")
@@ -167,20 +114,20 @@ if __name__ == "__main__":
                                     NeuralNet.train(batch_emails, labels=labels)
                                     logging.info(f"Trained on {len(batch_emails)} emails from batch {batch_num} of {total_batches}.")
                                     MailBox.keep_alive()  # Send NOOP to keep the connection alive
-                            
+
                                     NeuralNet.save_model()
                                     logging.info(f"Model saved after batch {batch_num} of {total_batches}.")
-                            
+
                                 # Update trained flag for batch
                                 for email in batch_emails:  # Only process emails that were newly trained
-                                    db_thread.set_trained_flag(email.hash)
-                            
+                                    db_thread.set_trained_flag(email.X_GM_MSGID)
+                                    MailBox.move(destination_folder,email.X_GM_MSGID)
+
                                 # Move newly trained emails to the destination folder
-                                mailProc.batch_move(mailbox_name, destination_folder)
                                 logging.info(f"Moved {len(batch_emails)} emails to {destination_folder}.")
                             else:
                                 logging.info(f"No pending emails in {mailbox_name}. Training skipped.")
-                            
+
                             logging.info(f"Fetching batch {batch_num+1} of {total_batches}.")
 
                     finally:
