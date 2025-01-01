@@ -135,8 +135,6 @@ class EmailDatabase:
             logging.error(f"Error adding folder and classification: {e}")
             self.connection.rollback()
 
-
-
     def set_trained_flag(self, hash_id: str, trained: bool = True):
         """
         Updates the 'trained' flag for a given hash ID.
@@ -177,7 +175,73 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error checking 'trained' flag for hash ID {x_gm_msgid}: {e}")
             return False
-    
+
+    def update_mail_queue(self, msg_ids):
+        # Ensure msg_ids is a list of integers
+        if not isinstance(msg_ids, list) or not all(isinstance(i, int) for i in msg_ids):
+            logging.error("The input parameter msg_ids must be a list of integers.")
+            return False
+
+        # Construct the insert SQL query for the list of msg_ids
+        sql = (
+            "INSERT INTO mail_que (x_gm_msgid) "
+            "SELECT x_gm_msgid FROM (SELECT %s) AS new_ids "
+            "WHERE new_ids.x_gm_msgid NOT IN (SELECT x_gm_msgid FROM mail_que);"
+        )
+
+        try:
+            # Execute the query with the list of msg_ids as parameters
+            self.cursor.executemany(sql, [(msg_id,) for msg_id in msg_ids])
+            self.connection.commit()
+            rows_affected = self.cursor.rowcount
+
+            if rows_affected > 0:
+                logging.debug(f"Successfully added {rows_affected} entries to mail_que.")
+            else:
+                logging.debug("No new entries added to mail_que. All records are up to date.")
+
+            return True
+        except MySQLdb.Error as e:
+            logging.error(f"Error updating mail_que: {e}", exc_info=True)
+            return False
+        
+    def fetch_from_que(self, limit):
+        """Generator method to fetch `x_gm_msgid` from the mail_que table with a limit."""
+        sql = (
+            "SELECT x_gm_msgid FROM mail_que "
+            "LIMIT %s"
+        )
+
+        try:
+            self.cursor.execute(sql, (limit,))
+            result = self.cursor.fetchall()
+            for row in result:
+                yield row[0]  # Yield each `x_gm_msgid`
+        except MySQLdb.Error as e:
+            logging.error(f"Error fetching from mail_que: {e}", exc_info=True)
+            return []
+
+    def pop_from_que(self, msg_id):
+        """Method to pop a specific `x_gm_msgid` from the mail_que table."""
+        sql = (
+            "DELETE FROM mail_que WHERE x_gm_msgid = %s"
+        )
+
+        try:
+            self.cursor.execute(sql, (msg_id,))
+            self.connection.commit()
+            rows_affected = self.cursor.rowcount
+
+            if rows_affected > 0:
+                logging.debug(f"Successfully removed x_gm_msgid {msg_id} from mail_que.")
+            else:
+                logging.debug(f"x_gm_msgid {msg_id} not found in mail_que.")
+            
+            return True
+        except MySQLdb.Error as e:
+            logging.error(f"Error popping from mail_que: {e}", exc_info=True)
+            return False
+
 # Example usage
 # db = EmailDatabase(host="localhost", user="root", password="password", database="email_db")
 # db.add_email_hash("somehash", "spam", ["ham", "promotion"])

@@ -5,6 +5,7 @@ import email
 import threading
 import hashlib
 import re
+from typing import Generator
 from email.header import decode_header
 from imaplib import IMAP4
 from .config import config
@@ -12,7 +13,7 @@ from .utils import log_progress
 from .database import EmailDatabase
 
 class Email:
-    def __init__(self, raw_data):
+    def __init__(self, raw_data: tuple):
         # msg_data is the result of an IMAP fetch command
         if not raw_data or not isinstance(raw_data, tuple):
             raise ValueError("Invalid raw_data format. Expected a tuple.")
@@ -152,8 +153,15 @@ class PostOffice():
             raise
 
     def close(self):
-        self.srv.close()
-        logging.info("Mailbox closed.")
+        try:
+            # Check if the server state is 'SELECTED'
+            if self.srv.state == 'SELECTED':
+                self.srv.close()
+                logging.info("Mailbox closed successfully.")
+            else:
+                logging.warning(f"Cannot close mailbox. Current state: {self.srv.state}. Expected: 'SELECTED'.")
+        except Exception as e:
+            logging.error(f"Error while closing the mailbox: {e}", exc_info=True)
 
     def logout(self):
         self.srv.logout()
@@ -186,61 +194,48 @@ class PostOffice():
         except IMAP4.error as e:
             logging.error(f"IMAP connection error selecting mailbox: {e}")
 
-    def fetch_batch(self, batch_size: int) -> list[Email]:  # type: ignore
-        """Fetches emails from the specified mailbox in batches, including their X-GM-MSGID."""
-        self.srv.select(self.mailbox, readonly=True)
-        result, data = self.srv.search(None, "ALL")
-
-        if result != "OK" or not data or not data[0]:
-            logging.warning(f"No emails found in mailbox '{self.mailbox}'.")
-            self.close()
-            return
-
-        email_ids = data[0].split()
-        total_emails = len(email_ids)
-        logging.info(f"Fetching ({total_emails}) emails from mailbox '{self.mailbox}' in batches of {batch_size}.")
+    def fetch_batch(self, x_gm_msgids: list[int]) -> Generator[Email, None, None]:
+        """Fetches emails based on provided x_gm_msgid list."""
+        total_emails = len(x_gm_msgids)
+        logging.info(f"Fetching ({total_emails}) emails from x_gm_msgid list.")
         start_time = time.time()
 
-        for batch_start in range(0, total_emails, batch_size):
-            batch = email_ids[batch_start:batch_start + batch_size]
-            email_objs = []
+        for count, x_gm_msgid in enumerate(x_gm_msgids, start=1):
+            if self._StopEvent.is_set():
+                logging.info("Stop signal received. Exiting batch fetch.")
+                return
 
-            for count, email_id in enumerate(batch, start=1):
-                if self._StopEvent.is_set():
-                    logging.info("Stop signal received. Exiting batch fetch.")
-                    return
-
-                retry_count = 3
-                for attempt in range(retry_count):
-                    logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email sequence number {email_id}.")
-                    try:
-                        # Fetch both the raw email content and the X-GM-MSGID
-                        self.reconnect()
-                        result, raw_imap_msg_data = self.srv.fetch(email_id, "(RFC822 X-GM-MSGID)") # BUG keep alive
-                        if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
-                            logging.debug(f"Successfully fetched email sequence number {email_id}.")
-                            break
-                    except Exception as e:
-                        logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
-                    time.sleep(2)
-                else:
-                    logging.error(f"Failed to fetch email sequence number {email_id} after {retry_count} attempts.")
-                    continue
-
-                if not isinstance(raw_imap_msg_data[0], tuple):
-                    logging.error(f"Invalid data format for email sequence number {email_id}. Expected a tuple but got: {type(raw_imap_msg_data[0])}")
-                    continue
-
+            retry_count = 3
+            for attempt in range(retry_count):
+                logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email with X-GM-MSGID {x_gm_msgid}.")
                 try:
-                    # Pass the raw message data and X-GM-MSGID to the Email object
-                    email_obj = Email(raw_imap_msg_data[0])
-                    email_objs.append(email_obj)
-                except (TypeError, ValueError) as e:
-                    logging.error(f"Error processing email sequence number {email_id}: {e}")
-                    logging.debug(f"Raw message data: {raw_imap_msg_data}")
+                    # Convert x_gm_msgid to string as required by IMAP fetch
+                    self.reconnect()
+                    result, raw_imap_msg_data = self.srv.fetch(str(x_gm_msgid), "(RFC822 X-GM-MSGID)")  # Use string for fetch
+                    if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
+                        logging.debug(f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}.")
+                        break
+                except Exception as e:
+                    logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
+                time.sleep(2)
+            else:
+                logging.error(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
+                continue
 
-            log_progress(batch_start + len(batch), total_emails, start_time)
-            yield email_objs
+            if not isinstance(raw_imap_msg_data[0], tuple):
+                logging.error(f"Invalid data format for email with X-GM-MSGID {x_gm_msgid}. Expected a tuple but got: {type(raw_imap_msg_data[0])}")
+                continue
+
+            try:
+                # Pass the raw message data and X-GM-MSGID to the Email object
+                email_obj = Email(raw_imap_msg_data[0])
+                yield email_obj
+            except (TypeError, ValueError) as e:
+                logging.error(f"Error processing email with X-GM-MSGID {x_gm_msgid}: {e}")
+                logging.debug(f"Raw message data: {raw_imap_msg_data}")
+
+            # Log progress
+            log_progress(count, total_emails, start_time)
 
     def move(self, destination_folder: str, x_gm_msgid: str):
         """
@@ -395,6 +390,35 @@ class PostOffice():
         except imaplib.IMAP4.abort as e:
             logging.warning(f"IMAP connection aborted: {e}. Reconnecting...")
             self.connect()  # Reconnect if the connection is lost
+
+    def fetch_X_GM_MSGID(self):
+        """Fetch all X-GM-MSGIDs from the mailbox."""
+        try:
+            # Perform an IMAP search for all emails
+            result, data = self.srv.search(None, "ALL")
+            
+            if result != "OK":
+                logging.error("Failed to fetch email IDs.")
+                return []
+
+            # Regular expression to extract X-GM-MSGIDs
+            x_gm_msgids = []
+            for num in data[0].split():
+                # Fetch the email's X-GM-MSGID
+                result, msg_data = self.srv.fetch(num, "(X-GM-MSGID)")
+                
+                if result == "OK" and msg_data:
+                    # Match the X-GM-MSGID value using a regex
+                    match = re.search(r'X-GM-MSGID (\d+)', str(msg_data))
+                    if match:
+                        x_gm_msgids.append(int(match.group(1)))
+
+            logging.info(f"Fetched {len(x_gm_msgids)} X-GM-MSGIDs.")
+            return x_gm_msgids
+
+        except Exception as e:
+            logging.error(f"Error fetching X-GM-MSGIDs: {e}", exc_info=True)
+            return []
 
 class EmailHasher:
 
