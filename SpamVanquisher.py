@@ -1,18 +1,15 @@
 import logging
 import threading
 import time
-import os
 import signal
 from lib.Daemon import DaemonThread
 from lib.config import config
-from lib.post import PostOffice, Email
-from lib.logs import LogRotation
-from lib.MailNet import MailNet
-from lib.database import EmailDatabase
-from lib.utils import extract_email_data, log_progress, interruptible_sleep
+from lib.yarn import LogRotation, TrainerThread, ClassificationThread
 
-# Refactor this class to use the PostOffice.Bulk_Move() method instead
-# TODO add hash lookup for cross checking mail lables
+# Register signal handler for SIGTERM
+def graceful_shutdown(signum, _frame):
+    logging.info(f"Received signal {signum}, shutting down gracefully.")
+    StopEvent.set()
 
 # Usage Example
 if __name__ == "__main__":
@@ -22,217 +19,54 @@ if __name__ == "__main__":
     infected_folder = config.INFECTED_FOLDER
     spam_learn = config.SPAM_LEARN
     ham_learn = config.HAM_LEARN
+    mail_que = config.INBOX
     ScanTime = int(config.SCAN_TIME)
+    batch_size = config.BATCH_SIZE
 
     # Additional Resources
+    signal.signal(signal.SIGTERM, graceful_shutdown)
 
     # Threading resources
     model_lock = threading.RLock()
     StopEvent = threading.Event()
-    ProcEvent = threading.Event()
+    ProcEvent = threading.Barrier(2)
 
     # Class Objects
-    Logger = LogRotation()
-    NeuralNet = MailNet()
+    Logger = LogRotation(StopEvent)
+    SpamTrain = TrainerThread((spam_learn, spam_folder, 0), batch_size, StopEvent, ProcEvent, model_lock)
+    HamTrain = TrainerThread((ham_learn, ham_folder, 1), batch_size , StopEvent,ProcEvent, model_lock)
+    Classification = ClassificationThread(mail_que, StopEvent, ProcEvent, batch_size)
 
-    # Thread defs
-    def LogRotate(stop_event: threading.Event):
-        log_file = config.LOG_FILE
-
-        logging.info("Log rotation thread started. Monitoring file: %s", log_file)
-        while not stop_event.is_set():
-            try:
-                if os.path.exists(log_file):
-                    file_size = os.path.getsize(log_file)
-                    logging.debug(f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}")
-                    if file_size >= config.MAX_SIZE:
-                        logging.warning(f"Log file size exceeded threshold: {log_file}")
-                        Logger.rotate()
-                else:
-                    with open(log_file, 'w') as log_file:
-                        log_file.write("")  # Initialize an empty log file
-            except Exception as e:
-                logging.error("Error in log rotation thread: %s", e, exc_info=True)
-            interruptible_sleep(config.CHECK_INTERVAL, stop_event)
-        logging.info("Log rotation thread stopped.")
-
-    def Trainer(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
-        scan_interval = scan_interval or config.SCAN_TIME
-        logging.info("Training thread started.")
-        logging.debug(f"sync_event ID: {id(sync_event)}")
-
-        model_lock = threading.RLock()  # Lock for model access
-
-        while not stop_event.is_set():
-            try:
-                with model_lock:
-                    NeuralNet.load_model()
-                    logging.info("Model loaded for training.")
-
-                def train_mailbox(mailbox_name, classification_number, destination_folder):
-                    nonlocal model_lock
-
-                    db_thread = EmailDatabase(
-                        host=config.SQL_HOST,
-                        user=config.SQL_USER,
-                        password=config.SQL_PASSWORD,
-                        database=config.SQL_DATABASE,
-                        port=config.SQL_PORT
-                    )
-
-                    try:
-                        MailBox = PostOffice(StopEvent, mailbox_name)  # PostOffice is thread-safe and connects in constructor
-                        MailBox.connect()
-                        db_thread.add_folder_and_classification(classification_number,destination_folder)
-
-                        # Calculate the total number of emails and batches
-                        total_emails = MailBox.total_emails(mailbox_name)
-                        total_batches = (total_emails // config.BATCH_SIZE) + (1 if total_emails % config.BATCH_SIZE != 0 else 0)
-
-                        logging.info(f"Processing {total_emails} emails in {total_batches} batches from {mailbox_name}.")
-
-                        batch_num = 0
-                        for batch in MailBox.fetch_batch(batch_size=config.BATCH_SIZE):  # Fetch batches as a generator
-
-                            batch_emails = []
-                            batch_num += 1  # Track the current batch number
-
-                            for email in batch:
-                                # Check if the email hash is already in the database
-                                if not db_thread.is_trained(email.X_GM_MSGID):
-                                    db_thread.add_email_hash(email.hash, email.X_GM_MSGID, classification_number)
-                                    batch_emails.append(email)
-                                elif db_thread.is_trained(email.X_GM_MSGID):
-                                    # Email is already trained but still in the source folder
-                                    logging.info(f"Email {email.X_GM_MSGID} is already trained but still in {mailbox_name}. Moving to {destination_folder}.")
-                                    MailBox.move(destination_folder, email.X_GM_MSGID)  # Move email to destination folder
-
-                            if batch_emails:
-                                with model_lock:
-                                    logging.info("Training model.")
-                                    labels = [classification_number] * len(batch_emails)
-                                    NeuralNet.train(batch_emails, labels=labels)
-                                    logging.info(f"Trained on {len(batch_emails)} emails from batch {batch_num} of {total_batches}.")
-                                    MailBox.keep_alive()  # Send NOOP to keep the connection alive
-
-                                    NeuralNet.save_model()
-                                    logging.info(f"Model saved after batch {batch_num} of {total_batches}.")
-
-                                # Update trained flag for batch
-                                for email in batch_emails:  # Only process emails that were newly trained
-                                    db_thread.set_trained_flag(email.X_GM_MSGID)
-                                    MailBox.move(destination_folder,email.X_GM_MSGID)
-
-                                # Move newly trained emails to the destination folder
-                                logging.info(f"Moved {len(batch_emails)} emails to {destination_folder}.")
-                            else:
-                                logging.info(f"No pending emails in {mailbox_name}. Training skipped.")
-
-                            logging.info(f"Fetching batch {batch_num+1} of {total_batches}.")
-
-                    finally:
-                        db_thread.close()
-                        MailBox.close()
-                        MailBox.logout()
-
-                threads = [
-                    threading.Thread(target=train_mailbox, args=(spam_learn, 1, spam_folder), name="Trainer-ProcessSpam"),
-                    threading.Thread(target=train_mailbox, args=(ham_learn, 0, ham_folder), name="Trainer-ProcessHam")
-                ]
-
-                for thread in threads:
-                    thread.start()
-
-                for thread in threads:
-                    thread.join()
-
-                sync_event.set()
-                logging.debug("Thread sync event set.")
-
-            except Exception as e:
-                logging.error(f"An error occurred in the Trainer thread: {e}", exc_info=True)
-
-            if scan_interval:
-                stop_event.wait(scan_interval)
-
-        logging.info("Trainer thread exiting.")
-
-    def PostMan(sync_event: threading.Event, stop_event: threading.Event, scan_interval: int = None):
-        scan_interval = scan_interval or config.SCAN_TIME
-        logging.debug(f"sync_event ID: {id(sync_event)}")
-        while not stop_event.is_set():
-            if not sync_event.is_set():
-                logging.info("Classification task waiting for training.")
-                sync_event.wait()  # Wait for the training task to complete
-                logging.info("Classification task started after training.")
-
-            # Load the trained model
-            NeuralNet.load_model()
-            logging.info(f"Model loaded for classification. fetching new mail from {config.INBOX}")
-
-            POBox = PostOffice(StopEvent,config.INBOX)
-            POBox.connect()
-
-            logging.info("Mail fetched running Classification.")
-            mail_count = 0
-            for batch in POBox.fetch_batch(config.BATCH_SIZE):  # fetch_batch is now a generator yielding batches
-                for email in batch:  # Each batch is a list of emails
-                    try:
-                        email.classification = NeuralNet.classify(extract_email_data(email))
-                    except Exception as e:
-                        logging.error(f"Error classifying email {email.uid}: {e}", exc_info=True)
-                        email.classification = None  # Mark as unclassified
-                    mail_count += 1  # Increment mail count for each email processed
-
-            logging.info(f"Total emails classified: {mail_count}")
-            logging.info(f"Sorting and moving {len(mail_count)} emails.")
-
-            start_time = time.time()
-
-            for index, mail in enumerate(mail_count, start=1):
-                # Log classification for debugging
-                logging.debug(f"Email ID {mail.uid} classified as {'Spam' if mail.classification > 0.5 else 'Ham'}.")
-
-                if mail.classification is not None:
-                    label = 'Spam' if mail.classification > 0.5 else 'Ham'
-                    destination_folder = config.SPAM_FOLDER if label == "Spam" else config.HAM_FOLDER
-
-                    # Move the email to the appropriate folder
-                    POBox.move(config.INBOX, destination_folder, mail.uid)
-                else:
-                    logging.warning(f"Email ID {mail.uid} could not be classified.")
-
-                # Log progress every 100 emails
-                if index % 100 == 0 or index == mail_count:
-                    log_progress(index,mail_count,start_time)
-
-            logging.info(f"{len(mail_count)} emails sorted and moved. Waiting for next scan event")
-            interruptible_sleep(scan_interval,stop_event)
-        logging.info("Stop Called! Shutting PostMan thread down!")
-
-    # 
-    LogDaemon = DaemonThread(name="LogRotation", target=LogRotate, args=(StopEvent,),)
-    TrainingDaemon = DaemonThread(name="Trainer", target=Trainer, args=(ProcEvent, StopEvent),)
-    OfficeDaemon = DaemonThread(name="PostMan", target=PostMan, args=(ProcEvent, StopEvent),)
-
-    # Start all threads
-    LogDaemon.start()
-    TrainingDaemon.start()
-    OfficeDaemon.start()
-
-    def graceful_shutdown(signum, _frame):
-        logging.info(f"Received signal {signum}, shutting down gracefully.")
-        StopEvent.set()
-
-    # Register signal handler for SIGTERM
-    signal.signal(signal.SIGTERM, graceful_shutdown)
-
+    # List of threads (DaemonThread calls directly placed in the list)
+    threads = [
+        DaemonThread(name="LogRotation", target=Logger.run),
+        DaemonThread(name="Trainer-Spam", target=SpamTrain.run),
+        DaemonThread(name="Trainer-Ham", target=HamTrain.run),
+        DaemonThread(name="PostMan", target=Classification.run),
+    ]
+        # Start all threads
     try:
+        for thread in threads:
+            logging.info(f"Starting thread: {thread.name}")
+            thread.start()
+
         logging.info("Service is running.")
+
+        # Main service loop: Wait for the stop signal
         while not StopEvent.is_set():
-            time.sleep(1)  # The main work loop, running until StopEvent is set
+            time.sleep(1)
+
     except KeyboardInterrupt:
         logging.info("Received KeyboardInterrupt, shutting down gracefully.")
         StopEvent.set()
+    except Exception as e:
+        logging.error(f"Unexpected error occurred: {e}", exc_info=True)
+        StopEvent.set()
+    finally:
+        logging.info("Stopping all threads.")
 
-    logging.info("Service stopped.")
+        # Ensure threads stop and join gracefully
+        for thread in threads:
+            logging.info(f"Waiting for thread to exit: {thread.name}")
+            thread.join()
+        logging.info("All threads have exited cleanly.")

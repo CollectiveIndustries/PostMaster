@@ -1,18 +1,25 @@
 import MySQLdb
 import logging
+from .config import config
 
 class EmailDatabase:
-    def __init__(self, host: str, user: str, password: str, database: str, port: int = 3306):
+    def __init__(self):
         try:
-            self.connection = MySQLdb.connect(host=host, user=user, passwd=password, db=database, port=port)
+            # Fetch values from the config.VALUE object
+            self.host = config.SQL_HOST
+            self.user = config.SQL_USER
+            self.password = config.SQL_PASSWORD
+            self.database = config.SQL_DATABASE
+            self.port = config.SQL_PORT
+
+            # Establish the connection to the database
+            self.connection = MySQLdb.connect(
+                host=self.host, user=self.user, passwd=self.password, 
+                db=self.database, port=self.port
+            )
             self.cursor = self.connection.cursor()
             logging.info("Connected to the database successfully.")
-            # save settings in case we need to reset the connection later
-            self.host=host
-            self.user=user
-            self.password=password
-            self.database=database
-            self.port=port
+
         except MySQLdb.Error as e:
             logging.error(f"Error connecting to database: {e}")
             raise
@@ -176,22 +183,22 @@ class EmailDatabase:
             logging.error(f"Error checking 'trained' flag for hash ID {x_gm_msgid}: {e}")
             return False
 
-    def update_mail_queue(self, msg_ids):
+    def update_mail_queue(self, msg_ids: list[int], thread_marker: str):
+        """Add msg_ids to the queue and mark them with the current thread's marker."""
         # Ensure msg_ids is a list of integers
         if not isinstance(msg_ids, list) or not all(isinstance(i, int) for i in msg_ids):
             logging.error("The input parameter msg_ids must be a list of integers.")
             return False
 
-        # Construct the insert SQL query for the list of msg_ids
         sql = (
-            "INSERT INTO mail_que (x_gm_msgid) "
-            "SELECT x_gm_msgid FROM (SELECT %s) AS new_ids "
+            "INSERT INTO mail_que (x_gm_msgid, thread_marker) "
+            "SELECT %s, %s FROM (SELECT %s) AS new_ids "
             "WHERE new_ids.x_gm_msgid NOT IN (SELECT x_gm_msgid FROM mail_que);"
         )
 
         try:
-            # Execute the query with the list of msg_ids as parameters
-            self.cursor.executemany(sql, [(msg_id,) for msg_id in msg_ids])
+            # Execute the query with the list of msg_ids and the current thread's marker
+            self.cursor.executemany(sql, [(msg_id, thread_marker, msg_id) for msg_id in msg_ids])
             self.connection.commit()
             rows_affected = self.cursor.rowcount
 
@@ -204,43 +211,45 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error updating mail_que: {e}", exc_info=True)
             return False
-        
-    def fetch_from_que(self, limit):
-        """Generator method to fetch `x_gm_msgid` from the mail_que table with a limit."""
-        sql = (
-            "SELECT x_gm_msgid FROM mail_que "
-            "LIMIT %s"
-        )
 
+    def fetch_mail_from_queue(self, thread_marker: str, batch_size: int):
+        """Fetch emails marked with a specific thread_marker."""
         try:
-            self.cursor.execute(sql, (limit,))
+            query = f"SELECT x_gm_msgid FROM mail_que WHERE thread_marker = %s LIMIT %s"
+            self.cursor.execute(query, (thread_marker, batch_size))
             result = self.cursor.fetchall()
-            for row in result:
-                yield row[0]  # Yield each `x_gm_msgid`
+            x_gm_msgids = [row[0] for row in result]
+
+            # Mark emails with the current thread's marker while fetching them
+            update_query = f"UPDATE mail_que SET thread_marker = %s WHERE x_gm_msgid IN (%s)"
+            self.cursor.execute(update_query, (thread_marker, ','.join(map(str, x_gm_msgids))))
+            self.connection.commit()
+
+            return x_gm_msgids
         except MySQLdb.Error as e:
-            logging.error(f"Error fetching from mail_que: {e}", exc_info=True)
+            logging.error(f"Error fetching emails from queue: {e}")
             return []
 
-    def pop_from_que(self, msg_id):
-        """Method to pop a specific `x_gm_msgid` from the mail_que table."""
-        sql = (
-            "DELETE FROM mail_que WHERE x_gm_msgid = %s"
-        )
 
+    def pop_from_que(self, msg_id: int, thread_marker: str):
+        """Remove an email from the queue after processing."""
         try:
-            self.cursor.execute(sql, (msg_id,))
+            # Ensure only the current thread can pop its own emails
+            query = "DELETE FROM mail_que WHERE x_gm_msgid = %s AND thread_marker = %s"
+            self.cursor.execute(query, (msg_id, thread_marker))
             self.connection.commit()
-            rows_affected = self.cursor.rowcount
 
+            rows_affected = self.cursor.rowcount
             if rows_affected > 0:
                 logging.debug(f"Successfully removed x_gm_msgid {msg_id} from mail_que.")
             else:
-                logging.debug(f"x_gm_msgid {msg_id} not found in mail_que.")
-            
+                logging.debug(f"x_gm_msgid {msg_id} not found or being processed by another thread.")
+
             return True
         except MySQLdb.Error as e:
             logging.error(f"Error popping from mail_que: {e}", exc_info=True)
             return False
+
 
 # Example usage
 # db = EmailDatabase(host="localhost", user="root", password="password", database="email_db")

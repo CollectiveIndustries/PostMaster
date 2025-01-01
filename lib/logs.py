@@ -4,10 +4,11 @@ import os
 import shutil
 import gzip
 from datetime import datetime
+from .utils import interruptible_sleep
 from .config import config
 
 class LogRotation(threading.Thread):
-    def __init__(self):
+    def __init__(self, stop_event: threading.Event):
         """
         Thread to monitor and rotate log files when they exceed a given size.
         """
@@ -16,8 +17,28 @@ class LogRotation(threading.Thread):
         self.log_file = config.LOG_FILE
         self.backup_count = config.BACKUP_COUNT
         self.check_interval = config.CHECK_INTERVAL
+        self.stop_event = stop_event
         logging.info("Log rotation thread intilized.")
 
+    def run(self):
+        log_file = config.LOG_FILE
+        logging.info("Log rotation thread started. Monitoring file: %s", log_file)
+        while not self.stop_event.is_set():
+            try:
+                if os.path.exists(log_file):
+                    file_size = os.path.getsize(log_file)
+                    logging.debug(f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}")
+                    if file_size >= config.MAX_SIZE:
+                        logging.warning(f"Log file size exceeded threshold: {log_file}")
+                        self.rotate()
+                else:
+                    with open(log_file, 'w') as log_file:
+                        log_file.write("")  # Initialize an empty log file
+            except Exception as e:
+                logging.error("Error in log rotation thread: %s", e, exc_info=True)
+            interruptible_sleep(config.CHECK_INTERVAL, self.stop_event)
+        logging.info("Log rotation thread stopped.")
+        
     def start(self):
         logging.info("Starting LogRotationThread...")
         super().start()
@@ -71,7 +92,6 @@ class LogRotation(threading.Thread):
         except Exception as e:
             logging.error("Failed to rotate logs: %s", e, exc_info=True)
             logging.critical("Critical failure during log rotation.")
-
 
     def _cleanup_logs(self, log_file_base, period, retention_count):
         """
