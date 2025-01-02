@@ -133,42 +133,43 @@ class TrainerThread(threading.Thread):
     def __init__(self, mailbox: tuple, batch_size: int, stop_event: threading.Event, barrier: threading.Barrier, model_lock: threading.RLock):
         super().__init__()
         self.src, self.dst, self.class_id = mailbox
-        self.post_office = PostOffice(stop_event, self.src)
-        self.email_db = EmailDatabase()
-        self.mail_net = MailNet()
         self.batch_size = batch_size
         self.stop_event = stop_event
         self.rlock = model_lock
-        self.name = threading.current_thread().name
         self.barrier = barrier
-
-        self.email_db.add_folder_and_classification(self.class_id, self.dst)
+        self.SleepTime = config.SCAN_TIME
 
     def stop(self):
         self.stop_event.set()
 
     def run(self):
         logging.info(f"Starting {self.src} trainer thread.")
+        self.name = threading.current_thread().name
+        self.post_office = PostOffice(self.stop_event, self.src)
+        self.email_db = EmailDatabase()
+        self.mail_net = MailNet()
+
+        self.email_db.add_folder_and_classification(self.class_id, self.dst)
 
         try:
             while not self.stop_event.is_set():
                 self.post_office.connect()
-                self.post_office.select_box(self.src)
+                self.post_office.select_box(readonly=False)
 
+                logging.info(f"Fetching list of mail from {self.src}")
                 # Step 1: Fetch all x_gm_msgid with the PostOffice class
-                untrained_msg_ids = self.post_office.fetch_X_GM_MSGID()
-
                 # Step 2: Update mail_que in the EmailDatabase class
-                self.email_db.update_mail_queue(untrained_msg_ids, self.name)
+                self.post_office.fetch_X_GM_MSGID(self.name)
 
                 # Step 3: Set up a loop to fetch from mail_que in the EmailDatabase class
                 batch_msg_ids = self.email_db.fetch_mail_from_queue(self.name, self.batch_size)
 
                 if not batch_msg_ids:
-                    logging.info(f"No unprocessed {self.src} emails found. Sleeping briefly.")
-                    time.sleep(5)
+                    logging.info(f"No unprocessed {self.src} emails found. Sleeping.")
+                    self.wait_barrier()
+                    time.sleep(self.SleepTime)
                     continue
-                
+
                 # Step 4: Fetch batch using x_gm_msgid from PostOffice
                 email_batch = []
                 try:
@@ -183,7 +184,7 @@ class TrainerThread(threading.Thread):
                 if not email_batch:
                     logging.warning(f"Failed to fetch emails for IDs: {batch_msg_ids}")
                     continue
-                
+
                 # Step 5: Train batch using MailNet class
                 with self.rlock:
                     logging.info(f"Training on {len(email_batch)} {self.src} emails.")
@@ -191,14 +192,10 @@ class TrainerThread(threading.Thread):
                     self.mail_net.train(email_batch, labels)
                     self.mail_net.save_model()
 
-                try:
-                    self.barrier.wait()
-                except threading.BrokenBarrierError:
-                    print(f"{self.name} barrier broken, exiting.")
-                    break
-
                 # Step 6: Move batch with PostOffice class
                 logging.info(f"Moving {len(email_batch)} emails to {self.dst}_learn folder.")
+
+                self.wait_barrier() # Wait for thread sync
 
                 # Move each email using the X-GM-MSGID from the email object
                 for email in email_batch:
@@ -218,34 +215,39 @@ class TrainerThread(threading.Thread):
                 self.post_office.logout()
 
         except Exception as e:
-            logging.error(f"Error in {self.mailbox} trainer thread: {e}", exc_info=True)
+            logging.error(f"Error in {self.src} trainer thread: {e}", exc_info=True)
 
-        logging.info(f"{self.mailbox} trainer thread stopped.")
+        logging.info(f"{self.src} trainer thread stopped.")
+
+    def wait_barrier(self):
+        try:
+            self.barrier.wait()
+        except threading.BrokenBarrierError:
+            print(f"{self.name} barrier broken, exiting.")
 
 class ClassificationThread(threading.Thread):
     def __init__(self, mailbox: str, stop_event: threading.Event, sync_event: threading.Barrier, batch_size: int):
         super().__init__()
         self.mailbox = mailbox  # 'inbox' or another mailbox for classification
-        self.post_office = PostOffice(stop_event, mailbox)
-        self.email_db = EmailDatabase()
-        self.mail_net = MailNet()
         self.batch_size = batch_size
         self.stop_event = stop_event
         self.sync_event = sync_event
-        self.name = threading.current_thread().name
 
     def run(self):
+        self.mail_net = MailNet()
+        self.email_db = EmailDatabase()
+        self.post_office = PostOffice(self.stop_event, self.mailbox)
+        self.name = threading.current_thread().name
+
         while not self.stop_event.is_set():
             # Wait for sync_event to ensure training threads have completed
             self.sync_event.wait()
 
             self.post_office.connect()
-            self.post_office.select_box(self.mailbox)
+            self.post_office.select_box(readonly=False)
 
             # Fetch X-GM-MSGIDs from the mail_que (the queue of unprocessed emails)
-            unclassified = self.post_office.fetch_X_GM_MSGID()
-
-            self.email_db.update_mail_queue(unclassified, self.name)
+            self.post_office.fetch_X_GM_MSGID(self.name)
 
             x_gm_msgids = self.email_db.fetch_mail_from_queue(self.batch_size,self.name)
             if not x_gm_msgids:

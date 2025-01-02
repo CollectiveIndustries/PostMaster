@@ -181,7 +181,7 @@ class PostOffice():
             logging.error(f"Failed to reconnect or select folder '{self.mailbox}': {e}")
             return False
 
-    def select_box(self,readonly: bool = True ):
+    def select_box(self, readonly: bool = True ):
         try:
             self.srv.select(self.mailbox, readonly) # DO NOT flag mail as read.
             logging.debug(f"Successfully connected to mailbox '{self.mailbox}'.")
@@ -205,7 +205,8 @@ class PostOffice():
                 try:
                     # Convert x_gm_msgid to string as required by IMAP fetch
                     self.reconnect()
-                    result, raw_imap_msg_data = self.srv.fetch(str(x_gm_msgid), "(RFC822 X-GM-MSGID)")  # Use string for fetch
+                    num = str(x_gm_msgid).encode()
+                    result, raw_imap_msg_data = self.srv.uid('FETCH', num, "(RFC822 X-GM-MSGID)") # Use string for fetch
                     if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
                         logging.debug(f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}.")
                         break
@@ -385,34 +386,47 @@ class PostOffice():
             logging.warning(f"IMAP connection aborted: {e}. Reconnecting...")
             self.connect()  # Reconnect if the connection is lost
 
-    def fetch_X_GM_MSGID(self):
-        """Fetch all X-GM-MSGIDs from the mailbox."""
+    def fetch_X_GM_MSGID(self, thread_name: str):
+        """
+        Fetch all X-GM-MSGIDs from the mailbox and dynamically update the mail queue.
+
+        Args:
+            thread_marker (str): The marker to identify the thread in the mail queue.
+        """
         try:
             # Perform an IMAP search for all emails
             result, data = self.srv.search(None, "ALL")
-            
+
             if result != "OK":
                 logging.error("Failed to fetch email IDs.")
-                return []
+                return
 
-            # Regular expression to extract X-GM-MSGIDs
-            x_gm_msgids = []
-            for num in data[0].split():
+            ids = data[0].split()
+            logging.info(f"Fetching {len(ids)} IDs from {self.mailbox}")
+
+            for index, num in enumerate(ids, start=1):
                 # Fetch the email's X-GM-MSGID
                 result, msg_data = self.srv.fetch(num, "(X-GM-MSGID)")
-                
+
                 if result == "OK" and msg_data:
                     # Match the X-GM-MSGID value using a regex
                     match = re.search(r'X-GM-MSGID (\d+)', str(msg_data))
                     if match:
-                        x_gm_msgids.append(int(match.group(1)))
+                        x_gm_msgid = int(match.group(1))
 
-            logging.info(f"Fetched {len(x_gm_msgids)} X-GM-MSGIDs.")
-            return x_gm_msgids
+                        # Update the mail queue with the fetched X-GM-MSGID
+                        if self.database.update_mail_queue([x_gm_msgid], thread_name):
+                            logging.debug(f"Added X-GM-MSGID {x_gm_msgid} to mail queue with marker '{thread_name}'.")
+
+                # Log progress every 100 emails
+                if index % 100 == 0:
+                    logging.info(f"Processed {index}/{len(ids)} X-GM-MSGIDs from {self.mailbox}")
+
+            logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
 
         except Exception as e:
             logging.error(f"Error fetching X-GM-MSGIDs: {e}", exc_info=True)
-            return []
+
 
 class EmailHasher:
 

@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `classification_folders` (
   PRIMARY KEY (`map_id`),
   KEY `classification_id` (`classification_id`),
   CONSTRAINT `classification_folders_ibfk_1` FOREIGN KEY (`classification_id`) REFERENCES `classifications` (`classification_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=0 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
 
@@ -79,9 +79,10 @@ CREATE TABLE IF NOT EXISTS `mail_que` (
   `x_gm_msgid` bigint(20) NOT NULL,
   `added_at` timestamp NULL DEFAULT current_timestamp(),
   `processed` tinyint(1) DEFAULT 0,
+  `thread_marker` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `x_gm_msgid` (`x_gm_msgid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=0 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
 

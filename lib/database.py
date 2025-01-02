@@ -192,18 +192,19 @@ class EmailDatabase:
 
         sql = (
             "INSERT INTO mail_que (x_gm_msgid, thread_marker) "
-            "SELECT %s, %s FROM (SELECT %s) AS new_ids "
-            "WHERE new_ids.x_gm_msgid NOT IN (SELECT x_gm_msgid FROM mail_que);"
-        )
+            "VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE added_at = CURRENT_TIMESTAMP"
+            )
 
         try:
             # Execute the query with the list of msg_ids and the current thread's marker
-            self.cursor.executemany(sql, [(msg_id, thread_marker, msg_id) for msg_id in msg_ids])
+            params = [(msg_id, thread_marker) for msg_id in msg_ids]
+            self.cursor.executemany(sql, params)
             self.connection.commit()
             rows_affected = self.cursor.rowcount
 
             if rows_affected > 0:
-                logging.debug(f"Successfully added {rows_affected} entries to mail_que.")
+                logging.debug(f"Successfully added or updated {rows_affected} entries in mail_que.")
             else:
                 logging.debug("No new entries added to mail_que. All records are up to date.")
 
@@ -230,7 +231,6 @@ class EmailDatabase:
             logging.error(f"Error fetching emails from queue: {e}")
             return []
 
-
     def pop_from_que(self, msg_id: int, thread_marker: str):
         """Remove an email from the queue after processing."""
         try:
@@ -249,7 +249,6 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error popping from mail_que: {e}", exc_info=True)
             return False
-
 
 # Example usage
 # db = EmailDatabase(host="localhost", user="root", password="password", database="email_db")
