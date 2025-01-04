@@ -203,7 +203,7 @@ class TrainerThread(threading.Thread):
                         logging.error(f"Failed to move email with X-GM-MSGID '{email.X_GM_MSGID}' to {self.dst}: {e}")
 
                 # Step 7: Set trained_flag in the EmailDatabase class
-                trained_msg_ids = [email.msg_id for email in email_batch]
+                trained_msg_ids = [email.X_GM_MSGID for email in email_batch]
                 self.email_db.set_trained_flag(trained_msg_ids)
 
                 # Step 8: Pop from mail_que in EmailDatabase class

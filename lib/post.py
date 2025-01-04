@@ -207,7 +207,7 @@ class PostOffice():
                     self.reconnect()
                     status, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
                     if status != "OK" or not data or not data[0]:
-                        logging.error(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
+                        logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
                         continue
                     uid = data[0].split()[0]
                     result, raw_imap_msg_data = self.srv.fetch(uid, "(RFC822)")
@@ -250,7 +250,7 @@ class PostOffice():
             # Search for the email in the source folder by X-GM-MSGID
             result, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
             if result != "OK" or not data or not data[0]:
-                logging.error(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
+                logging.debug(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
                 return
 
             # Extract the email ID
