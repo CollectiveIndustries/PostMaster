@@ -174,9 +174,6 @@ class TrainerThread(threading.Thread):
                 # Step 2: Update mail_que in the EmailDatabase class
                 self.post_office.fetch_X_GM_MSGID(self.name)
 
-                # TODO fix loops for baches in total and emails in batch
-                # If no unprocessed emails are found, sleep for a while
-                #
                 # Step 1: Fetch total email count for the thread marker
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
                 logging.info(f"Total emails to process: {total_count} for thread_marker: {self.name}")
