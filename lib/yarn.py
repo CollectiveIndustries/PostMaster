@@ -193,9 +193,7 @@ class TrainerThread(threading.Thread):
                     self.mail_net.save_model()
 
                 # Step 6: Move batch with PostOffice class
-                logging.info(f"Moving {len(email_batch)} emails to {self.dst}_learn folder.")
-
-                self.wait_barrier() # Wait for thread sync
+                logging.info(f"Moving {len(email_batch)} emails to {self.dst} folder.")
 
                 # Move each email using the X-GM-MSGID from the email object
                 for email in email_batch:
@@ -213,6 +211,8 @@ class TrainerThread(threading.Thread):
 
                 self.post_office.close()
                 self.post_office.logout()
+
+                self.wait_barrier() # Wait for thread sync
 
         except Exception as e:
             logging.error(f"Error in {self.src} trainer thread: {e}", exc_info=True)

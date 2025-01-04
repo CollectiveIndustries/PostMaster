@@ -29,7 +29,7 @@ if __name__ == "__main__":
     # Threading resources
     model_lock = threading.RLock()
     StopEvent = threading.Event()
-    ProcEvent = threading.Barrier(2)
+    ProcEvent = threading.Barrier(3)
 
     # Class Objects
     Logger = LogRotation(StopEvent)

@@ -205,8 +205,13 @@ class PostOffice():
                 try:
                     # Convert x_gm_msgid to string as required by IMAP fetch
                     self.reconnect()
-                    num = str(x_gm_msgid).encode()
-                    result, raw_imap_msg_data = self.srv.uid('FETCH', num, "(RFC822 X-GM-MSGID)") # Use string for fetch
+                    status, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+                    if status != "OK" or not data or not data[0]:
+                        logging.error(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
+                        continue
+                    uid = data[0].split()[0]
+                    result, raw_imap_msg_data = self.srv.fetch(uid, "(RFC822)")
+
                     if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
                         logging.debug(f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}.")
                         break
@@ -224,13 +229,15 @@ class PostOffice():
             try:
                 # Pass the raw message data and X-GM-MSGID to the Email object
                 email_obj = Email(raw_imap_msg_data[0])
+                email_obj.X_GM_MSGID = x_gm_msgid  # Update the X-GM-MSGID from the fetch result
                 yield email_obj
             except (TypeError, ValueError) as e:
                 logging.error(f"Error processing email with X-GM-MSGID {x_gm_msgid}: {e}")
                 logging.debug(f"Raw message data: {raw_imap_msg_data}")
 
             # Log progress
-            log_progress(count, total_emails, start_time)
+            if count % 100 == 0 or count == len(x_gm_msgids):
+                log_progress(count, total_emails, start_time)
 
     def move(self, destination_folder: str, x_gm_msgid: str):
         """
@@ -292,7 +299,7 @@ class PostOffice():
                     email_ids.append(data[0].split()[0])
                     logging.debug(f"Found email ID '{data[0].split()[0]}' for X-GM-MSGID '{x_gm_msgid}'.")
                 else:
-                    logging.warning(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
+                    logging.debug(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
 
             if not email_ids:
                 logging.warning("No emails found for the provided X-GM-MSGIDs. Aborting bulk move.")

@@ -3,7 +3,7 @@ import logging
 import time
 from .config import config
 
-def extract_email_data(email: Email):
+def extract_email_data(email: Email): # type: ignore
     """
     Extracts data from the email based on configuration settings.
     """
