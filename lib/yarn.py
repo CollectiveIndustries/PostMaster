@@ -135,15 +135,6 @@ class LogRotation(threading.Thread):
 
         except Exception as e:
             logging.error("Failed to clean up old logs for period '%s': %s", period, e, exc_info=True)
-
-# Initialize classes
-# post_office = PostOffice()
-# email_db = EmailDatabase()
-# mail_net = MailNet()
-# 
-# ClassificationThread definition
-# classification_thread = ClassificationThread(post_office, email_db, mail_net, stop_event)
-
 class TrainerThread(threading.Thread):
     def __init__(
         self, 
@@ -221,6 +212,8 @@ class TrainerThread(threading.Thread):
                     for email in email_batch:
                         try:
                             self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
+                            self.email_db.add_email_hash(email.X_GM_MSGID, email.hash)
+                            self.email_db.log_email_processing(email.X_GM_MSGID, email.hash,self.src, self.dst,"trained")
                             trained_msg_ids.append(email.X_GM_MSGID)
                         except Exception as e:
                             logging.error(f"Failed to move email with X-GM-MSGID '{email.X_GM_MSGID}' to {self.dst}: {e}")
@@ -231,7 +224,7 @@ class TrainerThread(threading.Thread):
                         try:
                             # Update the trained flag for all processed emails
                             self.email_db.set_trained_flag(trained_msg_ids)
-                            
+
                             # Pop each processed email from the queue
                             for msg_id in trained_msg_ids:
                                 success = self.email_db.pop_from_que(msg_id, self.name)
@@ -242,11 +235,12 @@ class TrainerThread(threading.Thread):
                     else:
                         logging.warning(f"No emails successfully processed in batch {start + 1} to {end}.")
 
-
                 self.post_office.close()
                 self.post_office.logout()
 
+                logging.info(f"Training on {self.src} emails completed. Waiting for next cycle.")
                 self.wait_barrier() # Wait for thread sync
+                interruptible_sleep(self.SleepTime, self.stop_event) # Sleep till next cycle
 
         except Exception as e:
             logging.error(f"Error in {self.src} trainer thread: {e}", exc_info=True)

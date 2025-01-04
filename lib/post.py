@@ -153,7 +153,7 @@ class PostOffice():
                 self.srv.close()
                 logging.info("Mailbox closed successfully.")
             else:
-                logging.warning(f"Cannot close mailbox. Current state: {self.srv.state}. Expected: 'SELECTED'.")
+                logging.warning(f"Cannot close mailbox. Current state: '{self.srv.state}'. Expected: 'SELECTED'.")
         except Exception as e:
             logging.error(f"Error while closing the mailbox: {e}", exc_info=True)
 
@@ -451,6 +451,7 @@ class PostOffice():
 
             ids = data[0].split()
             logging.info(f"Fetching {len(ids)} IDs from {self.mailbox}")
+            start_time = time.time()
 
             for index, num in enumerate(ids, start=1):
                 # Fetch the email's X-GM-MSGID
@@ -468,7 +469,7 @@ class PostOffice():
 
                 # Log progress every 100 emails
                 if index % 100 == 0:
-                    logging.info(f"{index}/{len(ids)} X-GM-MSGIDs from {self.mailbox} added to que.")
+                    log_progress(index, len(ids), start_time)
                     self.keep_alive()
 
             logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
