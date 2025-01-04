@@ -228,11 +228,20 @@ class TrainerThread(threading.Thread):
 
                     # Step 6: Update the trained flag and pop from the queue
                     if trained_msg_ids:
-                        self.email_db.set_trained_flag(trained_msg_ids)
-                        for msg_id in trained_msg_ids:
-                            self.email_db.pop_from_que(msg_id, self.name)
+                        try:
+                            # Update the trained flag for all processed emails
+                            self.email_db.set_trained_flag(trained_msg_ids)
+                            
+                            # Pop each processed email from the queue
+                            for msg_id in trained_msg_ids:
+                                success = self.email_db.pop_from_que(msg_id, self.name)
+                                if not success:
+                                    logging.error(f"Failed to pop email with X-GM-MSGID '{msg_id}' from queue.")
+                        except Exception as e:
+                            logging.error(f"Error during batch processing of trained_msg_ids: {e}", exc_info=True)
                     else:
                         logging.warning(f"No emails successfully processed in batch {start + 1} to {end}.")
+
 
                 self.post_office.close()
                 self.post_office.logout()

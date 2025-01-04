@@ -142,22 +142,32 @@ class EmailDatabase:
             logging.error(f"Error adding folder and classification: {e}")
             self.connection.rollback()
 
-    def set_trained_flag(self, hash_id: str, trained: bool = True):
+    def set_trained_flag(self, hash_ids: list[int], trained: bool = True):
         """
-        Updates the 'trained' flag for a given hash ID.
-
+        Updates the 'trained' flag for a list of hash IDs.
+    
         Parameters:
-        - hash_id: The SHA256 hash of the email.
+        - hash_ids: List of hash IDs (integers).
         - trained: Boolean value to set the flag (default is True).
         """
         try:
-            query = "UPDATE email_hashes SET trained = %s WHERE hash_id = %s"
-            self.cursor.execute(query, (trained, hash_id))
+            # Ensure hash_ids is not empty
+            if not hash_ids:
+                logging.warning("No hash IDs provided to set 'trained' flag.")
+                return
+            
+            # Create placeholders for the query
+            placeholders = ', '.join(['%s'] * len(hash_ids))
+            query = f"UPDATE email_hashes SET trained = %s WHERE hash_id IN ({placeholders})"
+            
+            # Execute the query with all hash_ids
+            self.cursor.execute(query, [trained, *hash_ids])
             self.connection.commit()
-            logging.debug(f"Set 'trained' flag to {trained} for hash ID: {hash_id}")
+            logging.debug(f"Set 'trained' flag to {trained} for hash IDs: {hash_ids}")
         except MySQLdb.Error as e:
-            logging.error(f"Error setting 'trained' flag for hash ID {hash_id}: {e}")
+            logging.error(f"Error setting 'trained' flag for hash IDs {hash_ids}: {e}")
             self.connection.rollback()
+
 
     def is_trained(self, x_gm_msgid: str) -> bool:
         """
