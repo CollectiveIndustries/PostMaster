@@ -214,22 +214,30 @@ class EmailDatabase:
             return False
 
     def fetch_mail_from_queue(self, thread_marker: str, batch_size: int):
-        """Fetch emails marked with a specific thread_marker."""
+        """Fetch emails marked with a specific thread_marker, yielding them one at a time."""
         try:
+            # Fetch email IDs in batches
             query = f"SELECT x_gm_msgid FROM mail_que WHERE thread_marker = %s LIMIT %s"
             self.cursor.execute(query, (thread_marker, batch_size))
             result = self.cursor.fetchall()
+    
+            # Collect the email IDs
             x_gm_msgids = [row[0] for row in result]
-
-            # Mark emails with the current thread's marker while fetching them
-            update_query = f"UPDATE mail_que SET thread_marker = %s WHERE x_gm_msgid IN (%s)"
-            self.cursor.execute(update_query, (thread_marker, ','.join(map(str, x_gm_msgids))))
-            self.connection.commit()
-
-            return x_gm_msgids
+    
+            if x_gm_msgids:
+                # Mark emails with the current thread's marker while fetching them
+                update_query = f"UPDATE mail_que SET thread_marker = %s WHERE x_gm_msgid IN ({','.join(['%s'] * len(x_gm_msgids))})"
+                self.cursor.execute(update_query, (thread_marker, *x_gm_msgids))
+                self.connection.commit()
+    
+                # Yield email IDs one by one
+                for x_gm_msgid in x_gm_msgids:
+                    yield x_gm_msgid
+            else:
+                logging.debug("No emails found for the specified thread_marker.")
+    
         except MySQLdb.Error as e:
             logging.error(f"Error fetching emails from queue: {e}")
-            return []
 
     def pop_from_que(self, msg_id: int, thread_marker: str):
         """Remove an email from the queue after processing."""
@@ -249,6 +257,39 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error popping from mail_que: {e}", exc_info=True)
             return False
+        
+    def fetch_thread_marker_count(self, thread_marker: str) -> int:
+        """
+        Fetch the total count of emails for a specific thread_marker.
+        
+        Args:
+            thread_marker (str): The thread_marker to filter by.
+
+        Returns:
+            int: The total count of emails for the given thread_marker.
+        """
+        try:
+            query = """
+                SELECT 
+                    COALESCE(thread_marker, 'Total') AS thread_marker,
+                    COUNT(*) AS count
+                FROM 
+                    SpamVanquisher.mail_que
+                WHERE 
+                    thread_marker = %s;
+            """
+            self.cursor.execute(query, (thread_marker,))
+            result = self.cursor.fetchone()
+            
+            if result:
+                return result[1]  # The `count` column
+            else:
+                return 0  # No rows found
+        except MySQLdb.Error as e:
+            logging.error(f"Error fetching thread marker count: {e}", exc_info=True)
+            return 0
+        finally:
+            self.connection.commit()
 
 # Example usage
 # db = EmailDatabase(host="localhost", user="root", password="password", database="email_db")

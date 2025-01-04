@@ -11,6 +11,21 @@ from .MailNet import MailNet
 from .utils import interruptible_sleep
 from .config import config
 
+def split_batches(total: int, batch_size: int):
+    """
+    Process a total number of items in chunks of batch_size.
+
+    Args:
+        total (int): The total number of items to process.
+        batch_size (int): The size of each batch.
+
+    Yields:
+        tuple: The start and end indices of the current batch.
+    """
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        yield start, end
+
 class LogRotation(threading.Thread):
     def __init__(self, stop_event: threading.Event):
         """
@@ -130,7 +145,14 @@ class LogRotation(threading.Thread):
 # classification_thread = ClassificationThread(post_office, email_db, mail_net, stop_event)
 
 class TrainerThread(threading.Thread):
-    def __init__(self, mailbox: tuple, batch_size: int, stop_event: threading.Event, barrier: threading.Barrier, model_lock: threading.RLock):
+    def __init__(
+        self, 
+        mailbox: tuple[str, str, int],  # Tuple with (source, destination, class_id)
+        batch_size: int, 
+        stop_event: threading.Event, 
+        barrier: threading.Barrier, 
+        model_lock: threading.RLock
+    ):
         super().__init__()
         self.src, self.dst, self.class_id = mailbox
         self.batch_size = batch_size
@@ -161,53 +183,56 @@ class TrainerThread(threading.Thread):
                 # Step 2: Update mail_que in the EmailDatabase class
                 self.post_office.fetch_X_GM_MSGID(self.name)
 
-                # Step 3: Set up a loop to fetch from mail_que in the EmailDatabase class
-                batch_msg_ids = self.email_db.fetch_mail_from_queue(self.name, self.batch_size)
+                # TODO fix loops for baches in total and emails in batch
+                # If no unprocessed emails are found, sleep for a while
+                #
+                # Step 1: Fetch total email count for the thread marker
+                total_count = self.email_db.fetch_thread_marker_count(self.name)
+                logging.info(f"Total emails to process: {total_count} for thread_marker: {self.name}")
 
-                if not batch_msg_ids:
-                    logging.info(f"No unprocessed {self.src} emails found. Sleeping.")
-                    self.wait_barrier()
-                    time.sleep(self.SleepTime)
-                    continue
+                # Step 2: Divide total emails into batches
+                for start, end in split_batches(total_count, self.batch_size):
+                    logging.info(f"Processing batch: {start + 1} to {end} out of {total_count}")
+                    email_batch = []
 
-                # Step 4: Fetch batch using x_gm_msgid from PostOffice
-                email_batch = []
-                try:
-                    # Use the fetch_batch method to fetch emails based on batch_msg_ids
-                    for email in self.post_office.fetch_batch(batch_msg_ids):
-                        if email:
+                    # Step 3: Fetch emails for the current batch
+                    for email_id in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
+                        try:
+                            email = self.post_office.fetch_single_email(email_id)
                             email_batch.append(email)
-                except Exception as e:
-                    logging.error(f"Error while fetching email batch: {e}")
+                        except Exception as e:
+                            logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}")
+                            continue
 
-                # If batch is empty, skip further processing
-                if not email_batch:
-                    logging.warning(f"Failed to fetch emails for IDs: {batch_msg_ids}")
-                    continue
+                    if not email_batch:
+                        logging.warning(f"No emails fetched in batch {start + 1} to {end}. Skipping.")
+                        continue
 
-                # Step 5: Train batch using MailNet class
-                with self.rlock:
-                    logging.info(f"Training on {len(email_batch)} {self.src} emails.")
-                    labels = [self.class_id] * len(email_batch)  
-                    self.mail_net.train(email_batch, labels)
-                    self.mail_net.save_model()
+                    # Step 4: Train batch using MailNet class
+                    with self.rlock:
+                        logging.info(f"Training on {len(email_batch)} {self.src} emails.")
+                        labels = [self.class_id] * len(email_batch)
+                        self.mail_net.train(email_batch, labels)
+                        self.mail_net.save_model()
 
-                # Step 6: Move batch with PostOffice class
-                logging.info(f"Moving {len(email_batch)} emails to {self.dst} folder.")
+                    # Step 5: Move emails to destination folder and update the queue
+                    trained_msg_ids = []
+                    logging.info(f"Moving {len(email_batch)} emails to {self.dst}.")
+                    for email in email_batch:
+                        try:
+                            self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
+                            trained_msg_ids.append(email.X_GM_MSGID)
+                        except Exception as e:
+                            logging.error(f"Failed to move email with X-GM-MSGID '{email.X_GM_MSGID}' to {self.dst}: {e}")
+                            continue
 
-                # Move each email using the X-GM-MSGID from the email object
-                for email in email_batch:
-                    try:
-                        self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
-                    except Exception as e:
-                        logging.error(f"Failed to move email with X-GM-MSGID '{email.X_GM_MSGID}' to {self.dst}: {e}")
-
-                # Step 7: Set trained_flag in the EmailDatabase class
-                trained_msg_ids = [email.X_GM_MSGID for email in email_batch]
-                self.email_db.set_trained_flag(trained_msg_ids)
-
-                # Step 8: Pop from mail_que in EmailDatabase class
-                self.email_db.pop_from_que(trained_msg_ids, self.name)
+                    # Step 6: Update the trained flag and pop from the queue
+                    if trained_msg_ids:
+                        self.email_db.set_trained_flag(trained_msg_ids)
+                        for msg_id in trained_msg_ids:
+                            self.email_db.pop_from_que(msg_id, self.name)
+                    else:
+                        logging.warning(f"No emails successfully processed in batch {start + 1} to {end}.")
 
                 self.post_office.close()
                 self.post_office.logout()

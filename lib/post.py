@@ -239,6 +239,47 @@ class PostOffice():
             if count % 100 == 0 or count == len(x_gm_msgids):
                 log_progress(count, total_emails, start_time)
 
+    def fetch_single_email(self, x_gm_msgid: int) -> Email | None:
+        """Fetches a single email based on the provided X-GM-MSGID."""
+        logging.debug(f"Fetching email with X-GM-MSGID {x_gm_msgid}.")
+        retry_count = 3
+
+        for attempt in range(retry_count):
+            logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email with X-GM-MSGID {x_gm_msgid}.")
+            try:
+                # Ensure connection is active
+                self.reconnect()
+
+                # Search for the email using X-GM-MSGID
+                status, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+                if status != "OK" or not data or not data[0]:
+                    logging.error(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
+                    continue
+
+                # Fetch the email using its UID
+                uid = data[0].split()[0]
+                result, raw_imap_msg_data = self.srv.fetch(uid, "(RFC822)")
+
+                if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
+                    logging.debug(f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}.")
+
+                    # Validate raw message data
+                    if not isinstance(raw_imap_msg_data[0], tuple):
+                        logging.error(f"Invalid data format for email with X-GM-MSGID {x_gm_msgid}.")
+                        return None
+
+                    # Create and return the Email object
+                    email_obj = Email(raw_imap_msg_data[0])
+                    email_obj.X_GM_MSGID = x_gm_msgid
+                    return email_obj
+            except Exception as e:
+                logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
+            time.sleep(2)
+
+        logging.error(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
+        return None
+
+
     def move(self, destination_folder: str, x_gm_msgid: str):
         """
         Moves a single email from one folder to another using X-GM-MSGID.
@@ -427,7 +468,8 @@ class PostOffice():
 
                 # Log progress every 100 emails
                 if index % 100 == 0:
-                    logging.info(f"Processed {index}/{len(ids)} X-GM-MSGIDs from {self.mailbox}")
+                    logging.info(f"{index}/{len(ids)} X-GM-MSGIDs from {self.mailbox} added to que.")
+                    self.keep_alive()
 
             logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
 
