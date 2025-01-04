@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS `classification_folders` (
   `folder_name` varchar(255) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`map_id`),
+  UNIQUE KEY `folder_name` (`folder_name`),
   KEY `classification_id` (`classification_id`),
   CONSTRAINT `classification_folders_ibfk_1` FOREIGN KEY (`classification_id`) REFERENCES `classifications` (`classification_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=0 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

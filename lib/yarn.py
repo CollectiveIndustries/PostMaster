@@ -267,7 +267,7 @@ class ClassificationThread(threading.Thread):
                 self.post_office.move(msgid, target_folder)
 
                 # Remove the email from the queue as it's processed
-                self.email_db.pop_from_que(msgid,self.name)
+                self.email_db.pop_from_que(msgid, self.name)
 
             self.post_office.close()
             self.post_office.logout()
