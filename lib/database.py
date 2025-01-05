@@ -238,7 +238,7 @@ class EmailDatabase:
             logging.error(f"Error adding folder and classification: {e}")
             self.connection.rollback()
 
-    def set_trained_flag(self, hash_ids: list[int], trained: bool = True) -> None:
+    def set_trained_flag(self, hash_ids: list[str], trained: bool = True) -> None:
         """
         Updates the 'trained' flag for a list of hash IDs.
     
