@@ -224,68 +224,80 @@ class TrainerThread(threading.Thread):
         Args:
             total_count (int): The total number of emails to process.
 
-        The method performs the following steps:
-        1. Splits the total count into batches and processes each batch.
-        2. Fetches emails for the current batch from the email queue.
-        3. Trains the MailNet model using the fetched emails.
-        4. Moves the trained emails to the destination folder.
-        5. Updates the trained flag and removes the processed emails from the queue.
-
-        The method handles interruptions via a stop event and logs various stages of processing.
+        Steps:
+        1. Split total emails into batches.
+        2. Fetch emails for the current batch from the email queue.
+        3. Validate fetched emails before training and processing.
+        4. Train the model using valid emails.
+        5. Move trained emails to the destination folder and update database.
         """
         for start, _end_ in split_batches(total_count, self.batch_size):
             if self.stop_event.is_set():
                 break
             logging.info(f"Processing batch: {start + 1} to {_end_} out of {total_count}")
-            email_batch = []
 
+            email_batch = []
             for email_id in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
                 if self.stop_event.is_set():
                     break
                 try:
                     email = self.post_office.fetch_single_email(email_id)
+                    # Validate fetched email
+                    if not email or not hasattr(email, "X_GM_MSGID"):
+                        logging.warning(f"Invalid or incomplete email fetched for ID {email_id}. Skipping.")
+                        continue
                     email_batch.append(email)
                 except Exception as e:
-                    logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}")
+                    logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}", exc_info=True)
                     continue
 
             if not email_batch:
-                logging.warning(f"No emails fetched in batch {start + 1} to {_end_}. Skipping.")
+                logging.warning(f"No valid emails fetched in batch {start + 1} to {_end_}. Skipping.")
                 continue
 
-            with self.rlock:
-                logging.info(f"Training on {len(email_batch)} {self.src} emails.")
-                labels = [self.class_id] * len(email_batch)
-                self.mail_net.train(email_batch, labels)
-                self.mail_net.save_model()
+            # Train the model
+            try:
+                with self.rlock:
+                    logging.info(f"Training on {len(email_batch)} {self.src} emails.")
+                    labels = [self.class_id] * len(email_batch)
+                    self.mail_net.train(email_batch, labels)
+                    self.mail_net.save_model()
+            except Exception as e:
+                logging.error(f"Error during model training: {e}", exc_info=True)
+                continue
 
+            # Move emails and update database
             trained_msg_ids = []
             logging.info(f"Moving {len(email_batch)} emails to {self.dst}.")
             for email in email_batch:
                 try:
                     self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
                     self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
-                    self.email_db.log_email_processing(email.X_GM_MSGID, email.hash,self.src, self.dst,"trained")
+                    self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.src, self.dst, "trained")
                     trained_msg_ids.append(email.X_GM_MSGID)
                 except Exception as e:
-                    logging.error(f"Failed to move email with X-GM-MSGID '{email.X_GM_MSGID}' to {self.dst}: {e}")
+                    logging.error(f"Failed to move email with X-GM-MSGID '{getattr(email, 'X_GM_MSGID', 'Unknown')}': {e}", exc_info=True)
                     continue
 
+            # Update database for processed emails
             if trained_msg_ids:
                 try:
                     self.email_db.set_trained_flag(trained_msg_ids)
-
                     for msg_id in trained_msg_ids:
                         success = self.email_db.pop_from_que(msg_id, self.name)
                         if not success:
                             logging.error(f"Failed to pop email with X-GM-MSGID '{msg_id}' from queue.")
                 except Exception as e:
-                    logging.error(f"Error during batch processing of trained_msg_ids: {e}", exc_info=True)
+                    logging.error(f"Error updating database for trained emails: {e}", exc_info=True)
             else:
                 logging.warning(f"No emails successfully processed in batch {start + 1} to {_end_}.")
 
-        self.post_office.close()
-        self.post_office.logout()
+        # Clean up the connection
+        try:
+            self.post_office.close()
+            self.post_office.logout()
+        except Exception as e:
+            logging.error(f"Error during PostOffice cleanup: {e}", exc_info=True)
 
     def wait_barrier(self):
         """

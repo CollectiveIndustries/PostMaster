@@ -667,7 +667,8 @@ class PostOffice():
                     logging.info("Stop signal received. shutting down PostOffice.")
                     break
 
-            logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
+            if len(ids) > 0:
+                logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
 
         except Exception as e:
             logging.error(f"Error fetching X-GM-MSGIDs: {e}", exc_info=True)
