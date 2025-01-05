@@ -1,3 +1,4 @@
+import pickle
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential, load_model # type: ignore
@@ -16,6 +17,10 @@ class MailNet():
         self.max_sequence_length = 300
         self.model_lock = threading.RLock()
         self.model = None
+
+    def save_history(self):
+        with open(f"{config.TRAINING_DATA_PATH}/history.pkl", "w") as f:
+            pickle.dump(self.model.history, f)
 
     def preprocess_data(self, texts: list):
         """Preprocess email texts into padded sequences."""

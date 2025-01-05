@@ -244,7 +244,7 @@ class TrainerThread(threading.Thread):
                     email = self.post_office.fetch_single_email(email_id)
                     # Validate fetched email
                     if not email or not hasattr(email, "X_GM_MSGID"):
-                        logging.warning(f"Invalid or incomplete email fetched for ID {email_id}. Skipping.")
+                        logging.debug(f"Invalid or incomplete email fetched for ID {email_id}. Skipping.")
                         continue
                     email_batch.append(email)
                 except Exception as e:
@@ -262,6 +262,7 @@ class TrainerThread(threading.Thread):
                     labels = [self.class_id] * len(email_batch)
                     self.mail_net.train(email_batch, labels)
                     self.mail_net.save_model()
+
             except Exception as e:
                 logging.error(f"Error during model training: {e}", exc_info=True)
                 continue

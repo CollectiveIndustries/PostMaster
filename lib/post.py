@@ -429,9 +429,8 @@ class PostOffice():
                 logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
             time.sleep(2)
 
-        logging.error(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
+        logging.debug7(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
         return None
-
 
     def move(self, destination_folder: str, x_gm_msgid: str):
         """
