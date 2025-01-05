@@ -5,6 +5,7 @@ import email
 import threading
 import hashlib
 import re
+import socket
 from typing import Generator
 from email.header import decode_header
 from imaplib import IMAP4
@@ -133,18 +134,36 @@ class PostOffice():
         self.mailbox = mailbox
         self.database = EmailDatabase()
 
-    def connect(self):
+    def connect(self, retry_delay: int = 10):
         """
-        Establish a connection to the IMAP server.
+        Establish a connection to the IMAP server in an endless loop unless stop_event is set.
+        
+        Parameters:
+        - retry_delay (int): Delay in seconds between retries.
         """
-        try:
-            self.srv = imaplib.IMAP4_SSL(self.url, self.port)
-            self.srv.login(self.email, self.password)
-            logging.info(f"Connected to IMAP server {self.url} on port {self.port}.")
-        except Exception as e:
-            self.srv = None  # Ensure srv is reset to None on failure
-            logging.error(f"Failed to connect to IMAP server: {e}", exc_info=True)
-            raise
+        while not self._StopEvent.is_set():
+            try:
+                logging.info(f"Attempting to connect to IMAP server {self.url}:{self.port}.")
+                # Check network connectivity
+                with socket.create_connection((self.url, self.port), timeout=10):
+                    logging.info(f"Network connectivity to {self.url}:{self.port} verified.")
+
+                # Attempt IMAP connection
+                self.srv = imaplib.IMAP4_SSL(self.url, self.port)
+                self.srv.login(self.email, self.password)
+                logging.info(f"Connected to IMAP server {self.url} on port {self.port}.")
+                return  # Exit the loop upon successful connection
+
+            except (socket.error, imaplib.IMAP4.error) as e:
+                logging.warning(f"Connection attempt failed: {e}")
+                self.srv = None
+
+            # Wait before retrying
+            logging.info(f"Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+
+        # If we exit due to stop_event being set
+        logging.info("Stop event set. Exiting connection attempts.")
 
     def close(self):
         try:
@@ -471,6 +490,10 @@ class PostOffice():
                 if index % 100 == 0:
                     log_progress(index, len(ids), start_time)
                     self.keep_alive()
+
+                if self._StopEvent.is_set():
+                    logging.info("Stop signal received. shutting down PostOffice.")
+                    break
 
             logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
 
