@@ -1,6 +1,18 @@
+"""
+This module provides functionality for log rotation, email training, and classification using threading.
+It includes classes for log rotation, training emails in batches, and classifying emails based on a trained model.
+
+Classes:
+    LogRotation: A thread that monitors and rotates log files when they exceed a given size.
+    TrainerThread: A thread that processes emails for training a model in batches.
+    ClassificationThread: A thread that classifies emails and moves them to appropriate folders.
+
+Functions:
+    split_batches: Splits a total number of items into chunks of a specified batch size.
+"""
+
 import threading
 import logging
-import time
 import os
 import shutil
 import gzip
@@ -156,6 +168,21 @@ class TrainerThread(threading.Thread):
         self.stop_event.set()
 
     def run(self):
+        """
+        Runs the trainer thread for processing emails.
+
+        This method initializes the necessary components for email processing,
+        connects to the post office, fetches emails, and processes them in batches.
+        It continues to run in a loop until the stop event is set.
+
+        Logging:
+            Logs the start and stop of the trainer thread, as well as the progress
+            and any errors encountered during execution.
+
+        Raises:
+            Exception: If an error occurs during the execution of the thread.
+
+        """
         logging.info(f"Starting {self.src} trainer thread.")
         self.name = threading.current_thread().name
         self.post_office = PostOffice(self.stop_event, self.src)
@@ -170,72 +197,17 @@ class TrainerThread(threading.Thread):
                 self.post_office.select_box(readonly=False)
 
                 logging.info(f"Fetching list of mail from {self.src}")
-                # Step 1: Fetch all x_gm_msgid with the PostOffice class
-                # Step 2: Update mail_que in the EmailDatabase class
                 self.post_office.fetch_X_GM_MSGID(self.name)
 
-                # Step 1: Fetch total email count for the thread marker
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
-                logging.info(f"Total emails to process: {total_count} for thread_marker: {self.name}")
 
-                # Step 2: Divide total emails into batches
-                for start, end in split_batches(total_count, self.batch_size):
-                    logging.info(f"Processing batch: {start + 1} to {end} out of {total_count}")
-                    email_batch = []
+                if total_count != 0:
+                    logging.info(f"Total emails to process: {total_count} for thread_marker: {self.name}")
+                    self._ProcessesBatches_(total_count)
+                    logging.info(f"Training on {self.src} emails completed. Waiting for next cycle.")
+                else:
+                    logging.info(f"No emails to process in {self.src}. Waiting for next cycle.")
 
-                    # Step 3: Fetch emails for the current batch
-                    for email_id in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
-                        try:
-                            email = self.post_office.fetch_single_email(email_id)
-                            email_batch.append(email)
-                        except Exception as e:
-                            logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}")
-                            continue
-
-                    if not email_batch:
-                        logging.warning(f"No emails fetched in batch {start + 1} to {end}. Skipping.")
-                        continue
-
-                    # Step 4: Train batch using MailNet class
-                    with self.rlock:
-                        logging.info(f"Training on {len(email_batch)} {self.src} emails.")
-                        labels = [self.class_id] * len(email_batch)
-                        self.mail_net.train(email_batch, labels)
-                        self.mail_net.save_model()
-
-                    # Step 5: Move emails to destination folder and update the queue
-                    trained_msg_ids = []
-                    logging.info(f"Moving {len(email_batch)} emails to {self.dst}.")
-                    for email in email_batch:
-                        try:
-                            self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
-                            self.email_db.add_email_hash(email.X_GM_MSGID, email.hash)
-                            self.email_db.log_email_processing(email.X_GM_MSGID, email.hash,self.src, self.dst,"trained")
-                            trained_msg_ids.append(email.X_GM_MSGID)
-                        except Exception as e:
-                            logging.error(f"Failed to move email with X-GM-MSGID '{email.X_GM_MSGID}' to {self.dst}: {e}")
-                            continue
-
-                    # Step 6: Update the trained flag and pop from the queue
-                    if trained_msg_ids:
-                        try:
-                            # Update the trained flag for all processed emails
-                            self.email_db.set_trained_flag(trained_msg_ids)
-
-                            # Pop each processed email from the queue
-                            for msg_id in trained_msg_ids:
-                                success = self.email_db.pop_from_que(msg_id, self.name)
-                                if not success:
-                                    logging.error(f"Failed to pop email with X-GM-MSGID '{msg_id}' from queue.")
-                        except Exception as e:
-                            logging.error(f"Error during batch processing of trained_msg_ids: {e}", exc_info=True)
-                    else:
-                        logging.warning(f"No emails successfully processed in batch {start + 1} to {end}.")
-
-                self.post_office.close()
-                self.post_office.logout()
-
-                logging.info(f"Training on {self.src} emails completed. Waiting for next cycle.")
                 self.wait_barrier() # Wait for thread sync
                 interruptible_sleep(self.SleepTime, self.stop_event) # Sleep till next cycle
 
@@ -243,8 +215,87 @@ class TrainerThread(threading.Thread):
             logging.error(f"Error in {self.src} trainer thread: {e}", exc_info=True)
 
         logging.info(f"{self.src} trainer thread stopped.")
+        self.wait_barrier()
+
+    def _ProcessesBatches_(self, total_count) -> None:
+        """
+        Processes batches of emails for training and moves them to the destination folder.
+
+        Args:
+            total_count (int): The total number of emails to process.
+
+        The method performs the following steps:
+        1. Splits the total count into batches and processes each batch.
+        2. Fetches emails for the current batch from the email queue.
+        3. Trains the MailNet model using the fetched emails.
+        4. Moves the trained emails to the destination folder.
+        5. Updates the trained flag and removes the processed emails from the queue.
+
+        The method handles interruptions via a stop event and logs various stages of processing.
+        """
+        for start, end in split_batches(total_count, self.batch_size):
+            if self.stop_event.is_set():
+                break
+            logging.info(f"Processing batch: {start + 1} to {end} out of {total_count}")
+            email_batch = []
+
+            for email_id in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
+                if self.stop_event.is_set():
+                    break
+                try:
+                    email = self.post_office.fetch_single_email(email_id)
+                    email_batch.append(email)
+                except Exception as e:
+                    logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}")
+                    continue
+
+            if not email_batch:
+                logging.warning(f"No emails fetched in batch {start + 1} to {end}. Skipping.")
+                continue
+
+            with self.rlock:
+                logging.info(f"Training on {len(email_batch)} {self.src} emails.")
+                labels = [self.class_id] * len(email_batch)
+                self.mail_net.train(email_batch, labels)
+                self.mail_net.save_model()
+
+            trained_msg_ids = []
+            logging.info(f"Moving {len(email_batch)} emails to {self.dst}.")
+            for email in email_batch:
+                try:
+                    self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
+                    self.email_db.add_email_hash(email.X_GM_MSGID, email.hash)
+                    self.email_db.log_email_processing(email.X_GM_MSGID, email.hash,self.src, self.dst,"trained")
+                    trained_msg_ids.append(email.X_GM_MSGID)
+                except Exception as e:
+                    logging.error(f"Failed to move email with X-GM-MSGID '{email.X_GM_MSGID}' to {self.dst}: {e}")
+                    continue
+
+            if trained_msg_ids:
+                try:
+                    self.email_db.set_trained_flag(trained_msg_ids)
+
+                    for msg_id in trained_msg_ids:
+                        success = self.email_db.pop_from_que(msg_id, self.name)
+                        if not success:
+                            logging.error(f"Failed to pop email with X-GM-MSGID '{msg_id}' from queue.")
+                except Exception as e:
+                    logging.error(f"Error during batch processing of trained_msg_ids: {e}", exc_info=True)
+            else:
+                logging.warning(f"No emails successfully processed in batch {start + 1} to {end}.")
+
+        self.post_office.close()
+        self.post_office.logout()
 
     def wait_barrier(self):
+        """
+        Waits at the barrier until all threads have reached this point.
+
+        This method blocks the calling thread until all threads have called 
+        this method. If the barrier is broken, it catches the 
+        threading.BrokenBarrierError and prints an error message indicating 
+        that the barrier is broken and the thread is exiting.
+        """
         try:
             self.barrier.wait()
         except threading.BrokenBarrierError:
@@ -298,3 +349,4 @@ class ClassificationThread(threading.Thread):
             self.post_office.logout()
 
         logging.info("Shutting down classification thread!")
+        self.sync_event.wait()
