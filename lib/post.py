@@ -1,3 +1,37 @@
+"""
+This module provides classes and functions for managing and processing emails using the IMAP protocol.
+Classes:
+    Email: Represents an email message and provides methods to extract and decode its components.
+    PostOffice: Manages the connection to an IMAP server and provides methods to fetch, move, and manage emails.
+    EmailHasher: Provides a static method to generate a SHA-256 hash of email content.
+Functions:
+    Email:
+        __init__(raw_data: tuple): Initializes an Email object with raw IMAP fetch data.
+        extract_message_parts(raw_msg_data: bytes) -> tuple[str | None, str | None, str | None]: Extracts X-GM-MSGID, message sequence number, and email size from raw message data.
+        get_subject(msg): Extracts the subject from the email message.
+        get_sender(msg): Extracts the sender from the email message.
+        get_recipient(msg): Extracts the recipient from the email message.
+        get_payload(msg): Extracts the payload (body) from the email message.
+        __repr__(): Returns a string representation of the Email object.
+        _decode_email_header(header_value) -> str: Decodes an email header value.
+    PostOffice:
+        __init__(event: threading.Event, mailbox: str): Initializes a PostOffice object with email settings and mailbox information.
+        connect(retry_delay: int = 10): Establishes a connection to the IMAP server with retry logic.
+        close(): Closes the mailbox if the server state is 'SELECTED'.
+        logout(): Logs out from the IMAP server.
+        reconnect(): Ensures the IMAP connection is active and re-selects the folder if necessary.
+        select_box(readonly: bool = True): Selects the mailbox for further operations.
+        fetch_batch(x_gm_msgids: list[int]) -> Generator[Email, None, None]: Fetches emails based on provided X-GM-MSGID list.
+        fetch_single_email(x_gm_msgid: int) -> Email | None: Fetches a single email based on the provided X-GM-MSGID.
+        move(destination_folder: str, x_gm_msgid: str): Moves an email to the specified destination folder.
+        bulk_move(destination_folder: str, x_gm_msgids: list[str]): Moves multiple emails to the specified destination folder in bulk.
+        _check_uidplus_support_() -> bool: Checks if the IMAP server supports the UIDPLUS extension.
+        total_emails(folder): Fetches the total number of emails in the specified folder.
+        keep_alive(): Sends a NOOP command to the IMAP server to keep the connection alive.
+        fetch_X_GM_MSGID(thread_name: str): Fetches all X-GM-MSGIDs from the mailbox and updates the mail queue.
+    EmailHasher:
+        generate_sha256sum(email_content: bytes) -> str: Generates a SHA-256 hash from the email content.
+"""
 import logging
 import imaplib
 import time
@@ -14,6 +48,35 @@ from .utils import log_progress
 from .database import EmailDatabase
 
 class Email:
+    """
+    A class to represent an email message.
+    Attributes:
+        subject (str): The subject of the email.
+        sender (str): The sender of the email.
+        recipient (str): The recipient of the email.
+        payload (str): The body of the email.
+        classification (None): Placeholder for email classification.
+        X_GM_MSGID (str | None): The X-GM-MSGID of the email.
+        msg_sequence (str | None): The message sequence number.
+        email_size (str | None): The size of the email.
+        hash (str): The SHA-256 hash of the email content.
+    Methods:
+        __init__(raw_data: tuple):
+            Initializes the Email object with raw data from an IMAP fetch command.
+        extract_message_parts(raw_msg_data: bytes) -> tuple[str | None, str | None, str | None]:
+        _get_subject(msg):
+            Extracts the subject from the email message.
+        _get_sender(msg):
+            Extracts the sender from the email message.
+        _get_recipient(msg):
+            Extracts the recipient from the email message.
+        _get_payload(msg):
+            Extracts the email payload (body of the email).
+        __repr__():
+            Returns a string representation of the Email object.
+        _decode_email_header(header_value) -> str:
+            Decodes an email header to a readable string.
+    """
     def __init__(self, raw_data: tuple):
         # msg_data is the result of an IMAP fetch command
         if not raw_data or not isinstance(raw_data, tuple):
@@ -21,16 +84,25 @@ class Email:
         raw_email = raw_data[1]
         msg = email.message_from_bytes(raw_email)
 
-        self.subject = self.get_subject(msg)
-        self.sender = self.get_sender(msg)
-        self.recipient = self.get_recipient(msg)
-        self.payload = self.get_payload(msg)
+        self.subject = self._get_subject(msg)
+        self.sender = self._get_sender(msg)
+        self.recipient = self._get_recipient(msg)
+        self.payload = self._get_payload(msg)
         self.classification = None
         self.X_GM_MSGID, self.msg_sequence, self.email_size = self.extract_message_parts(raw_data[0])
         self.hash = EmailHasher.generate_sha256sum(raw_data[1])
 
-    def extract_message_parts(self, raw_msg_data):
-        """Extracts X-GM-MSGID, message sequence number, and email size using regular expressions."""
+    def extract_message_parts(self, raw_msg_data: bytes) -> tuple[str | None, str | None, str | None]:
+        """
+        Extracts X-GM-MSGID, message sequence number, and email size from raw message data using regular expressions.
+        Args:
+            raw_msg_data (bytes): The raw message data from which to extract the parts.
+        Returns:
+            tuple: A tuple containing the X-GM-MSGID (str), message sequence number (str), and email size (str).
+               If any part is not found, its value in the tuple will be None.
+        Raises:
+            None: This method handles exceptions internally and logs errors.
+        """
         # Define regex patterns for extracting the parts
         msgid_pattern = rb"X-GM-MSGID (\d+)"
         sequence_pattern = rb"^(\d+)"
@@ -62,17 +134,17 @@ class Email:
         
         return msgid, msg_sequence, email_size
 
-    def get_subject(self, msg):
+    def _get_subject(self, msg):
         # Extract subject from the message
         return self._decode_email_header(msg.get("Subject"))
 
-    def get_sender(self, msg):
+    def _get_sender(self, msg):
         return self._decode_email_header(msg.get("From"))
 
-    def get_recipient(self, msg):
+    def _get_recipient(self, msg):
         return self._decode_email_header(msg.get("To"))
 
-    def get_payload(self, msg):
+    def _get_payload(self, msg):
         """
         Extract the email payload (body of the email).
         """
@@ -166,6 +238,14 @@ class PostOffice():
         logging.info("Stop event set. Exiting connection attempts.")
 
     def close(self):
+        """
+        Closes the mailbox if the server state is 'SELECTED'.
+
+        This method attempts to close the mailbox by checking the server's state.
+        If the state is 'SELECTED', it closes the server connection and logs a success message.
+        If the state is not 'SELECTED', it logs a warning message indicating the current state.
+        In case of any exceptions during the process, it logs an error message with the exception details.
+        """
         try:
             # Check if the server state is 'SELECTED'
             if self.srv.state == 'SELECTED':
@@ -177,6 +257,13 @@ class PostOffice():
             logging.error(f"Error while closing the mailbox: {e}", exc_info=True)
 
     def logout(self):
+        """
+        Logs out from the IMAP server and records the action in the log.
+
+        This method calls the `logout` function of the `srv` attribute to 
+        terminate the session with the IMAP server. It also logs an 
+        informational message indicating that the logout was successful.
+        """
         self.srv.logout()
         logging.info("Logged out of IMAP server.")
 
@@ -201,6 +288,19 @@ class PostOffice():
             return False
 
     def select_box(self, readonly: bool = True ):
+        """
+        Selects the mailbox for further operations.
+
+        Parameters:
+        readonly (bool): If True, the mailbox is opened in read-only mode. Defaults to True.
+
+        Raises:
+        IMAP4.error: If there is an error selecting the mailbox.
+
+        Logs:
+        Debug: Successfully connected to the mailbox.
+        Error: IMAP connection error selecting the mailbox.
+        """
         try:
             self.srv.select(self.mailbox, readonly) # DO NOT flag mail as read.
             logging.debug(f"Successfully connected to mailbox '{self.mailbox}'.")
@@ -208,7 +308,26 @@ class PostOffice():
             logging.error(f"IMAP connection error selecting mailbox: {e}")
 
     def fetch_batch(self, x_gm_msgids: list[int]) -> Generator[Email, None, None]:
-        """Fetches emails based on provided x_gm_msgid list."""
+        """
+        Fetches emails based on provided x_gm_msgid list.
+
+        Args:
+            x_gm_msgids (list[int]): List of X-GM-MSGID values to fetch emails for.
+
+        Yields:
+            Email: An Email object containing the fetched email data.
+
+        Logs:
+            - Information about the total number of emails to fetch.
+            - Progress of fetching emails.
+            - Errors encountered during fetching and processing emails.
+            - Debug information for each fetch attempt.
+
+        Notes:
+            - Retries fetching each email up to 3 times in case of failure.
+            - Stops fetching if a stop signal is received.
+            - Logs progress every 100 emails or at the end of the batch.
+        """
         total_emails = len(x_gm_msgids)
         logging.info(f"Fetching ({total_emails}) emails from x_gm_msgid list.")
         start_time = time.time()
@@ -259,7 +378,22 @@ class PostOffice():
                 log_progress(count, total_emails, start_time)
 
     def fetch_single_email(self, x_gm_msgid: int) -> Email | None:
-        """Fetches a single email based on the provided X-GM-MSGID."""
+        """
+        Fetches a single email based on the provided X-GM-MSGID.
+
+        Args:
+            x_gm_msgid (int): The X-GM-MSGID of the email to fetch.
+
+        Returns:
+            Email | None: The fetched Email object if successful, otherwise None.
+
+        This method attempts to fetch an email from the server using the provided X-GM-MSGID.
+        It retries the operation up to 3 times in case of failure. If the email is found and
+        successfully fetched, it returns an Email object. If the email is not found or an error
+        occurs during the fetch attempts, it returns None.
+
+        The method logs detailed debug information about each attempt and any errors encountered.
+        """
         logging.debug(f"Fetching email with X-GM-MSGID {x_gm_msgid}.")
         retry_count = 3
 
@@ -301,7 +435,16 @@ class PostOffice():
 
     def move(self, destination_folder: str, x_gm_msgid: str):
         """
-        Moves a single email from one folder to another using X-GM-MSGID.
+        Args:
+            destination_folder (str): The name of the destination folder where the email should be moved.
+            x_gm_msgid (str): The X-GM-MSGID of the email to be moved.
+        Returns:
+            None
+        Logs:
+            - Debug information about the process of moving the email.
+            - Error information if the email could not be moved.
+        Raises:
+            Exception: If an error occurs during the process of moving the email.
         """
         logging.debug(f"Moving email with X-GM-MSGID '{x_gm_msgid}' from '{self.mailbox}' to '{destination_folder}'.")
         self.select_box(readonly=False)
@@ -396,7 +539,19 @@ class PostOffice():
             self.close()
 
     def _check_uidplus_support_(self) -> bool:
-        """Check if the IMAP server supports UIDPLUS (RFC 4315)."""
+        """
+        Checks if the IMAP server supports the UIDPLUS extension (RFC 4315).
+
+        This method connects to the IMAP server, queries its capabilities, and checks if UIDPLUS is supported.
+        It logs the server capabilities and whether UIDPLUS is supported or not.
+
+        Returns:
+            bool: True if the server supports UIDPLUS, False otherwise.
+
+        Raises:
+            imaplib.IMAP4.error: If there is an IMAP4 protocol error.
+            Exception: If there is an unexpected error.
+        """
         try:
             self.connect()
 
@@ -427,7 +582,16 @@ class PostOffice():
 
     def total_emails(self, folder):
         """
-        Returns the total number of emails in the specified folder.
+        Fetches the total number of emails in the specified folder.
+
+        Args:
+            folder (str): The name of the folder to check for emails.
+
+        Returns:
+            int: The total number of emails in the folder. Returns 0 if an error occurs.
+
+        Raises:
+            ValueError: If the number of messages cannot be extracted from the server response.
         """
         try:
             # Fetch the status of the folder
@@ -446,6 +610,14 @@ class PostOffice():
             return 0  # Return 0 if there is an error
 
     def keep_alive(self):
+        """
+        Sends a NOOP command to the IMAP server to keep the connection alive.
+        
+        If the connection is aborted, logs a warning and attempts to reconnect.
+        
+        Raises:
+            imaplib.IMAP4.abort: If the IMAP connection is aborted.
+        """
         try:
             self.srv.noop()
             logging.debug("Sent NOOP to keep the IMAP connection alive.")
@@ -504,12 +676,22 @@ class PostOffice():
 class EmailHasher:
 
     @staticmethod
-    def generate_sha256sum(email_content) -> str:
+    def generate_sha256sum(email_content: bytes) -> str:
         """
         Generate a SHA-256 hash from the email content.
+
+        Args:
+            email_content (bytes): The content of the email to hash.
+
+        Returns:
+            str: The SHA-256 hash of the email content.
+
+        Raises:
+            ValueError: If the email content is not of type bytes.
         """
-        if isinstance(email_content, str):
-            email_content = email_content.encode('utf-8')
+        if not isinstance(email_content, bytes):
+            raise ValueError("email_content must be of type bytes.")
+        
         sha256_hash = hashlib.sha256(email_content).hexdigest()
         return sha256_hash
 

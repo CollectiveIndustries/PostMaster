@@ -1,3 +1,30 @@
+"""
+This module provides the EmailDatabase class for interacting with a MySQL database
+to manage email hashes, classifications, folders, and processing logs.
+Classes:
+    EmailDatabase: A class to handle database operations related to email processing.
+Usage example:
+    db = EmailDatabase()
+    db.add_email_hash("somehash", "spam", "ham")
+    db.close()
+    A class to handle database operations related to email processing.
+    Methods:
+        __init__(): Initializes the database connection using configuration values.
+        reconnect(): Re-establishes the database connection if it becomes stale.
+        close(): Closes the database connection.
+        add_email_hash(hash_id: str, x_gm_msgid: str, classification_id: str): Adds an email hash to the database.
+        get_classification(x_gm_msgid: str): Retrieves the classification ID for a given email message ID.
+        get_folder_for_classification(classification_id: str): Retrieves the folder name for a given classification ID.
+        log_email_processing(sequence_number: str, hash_id: str, source_folder: str, destination_folder: str, status: str): Logs email processing details.
+        add_folder_and_classification(classification_id: str, folder_name: str): Adds a folder and classification mapping to the database.
+        set_trained_flag(hash_ids: list[int], trained: bool = True): Updates the 'trained' flag for a list of hash IDs.
+        is_trained(x_gm_msgid: str) -> bool: Checks if the 'trained' flag is set for a given email message ID.
+        update_mail_queue(msg_ids: list[int], thread_marker: str): Adds message IDs to the mail queue and marks them with the current thread's marker.
+        fetch_mail_from_queue(thread_marker: str, batch_size: int): Fetches emails marked with a specific thread marker, yielding them one at a time.
+        pop_from_que(msg_id: int, thread_marker: str): Removes an email from the queue after processing.
+        fetch_thread_marker_count(thread_marker: str) -> int: Fetches the total count of emails for a specific thread marker.
+"""
+from typing import Generator, Optional
 import MySQLdb
 import logging
 from .config import config
@@ -52,7 +79,23 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error closing database connection: {e}")
 
-    def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str):
+    def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
+        """
+        Adds an email hash to the database.
+
+        This method inserts a new record into the email_hashes table with the provided
+        hash_id, x_gm_msgid, and classification_id. If the insertion is successful, the
+        transaction is committed. If an error occurs, the transaction is rolled back and
+        an error message is logged.
+
+        Args:
+            hash_id (str): The hash ID of the email.
+            x_gm_msgid (str): The Gmail message ID of the email.
+            classification_id (str): The classification ID of the email.
+
+        Raises:
+            MySQLdb.Error: If an error occurs during the database operation.
+        """
         try:
             query = """
                 INSERT IGNORE INTO email_hashes (hash_id, x_gm_msgid, classification_id)
@@ -65,7 +108,19 @@ class EmailDatabase:
             logging.error(f"Error inserting email hash: {e}")
             self.connection.rollback()
 
-    def get_classification(self, x_gm_msgid):
+    def get_classification(self, x_gm_msgid: str) -> str:
+        """
+        Retrieves the classification ID for a given email message ID.
+
+        Args:
+            x_gm_msgid (str): The Gmail message ID of the email.
+
+        Returns:
+            str: The classification ID of the email.
+
+        Raises:
+            MySQLdb.OperationalError: If unable to fetch classification after retries.
+        """
         max_retries = 5  # Set a limit on the number of retries
         retries = 0
         while retries < max_retries:
@@ -80,7 +135,15 @@ class EmailDatabase:
         # If we exhaust retries, raise an exception
         raise MySQLdb.OperationalError(f"Unable to fetch classification after {max_retries} retries.")
 
-    def get_folder_for_classification(self, classification_id: str):
+    def get_folder_for_classification(self, classification_id: str) -> Optional[str]:
+        """
+        Retrieve the folder name associated with a given classification ID.
+        Args:
+            classification_id (str): The ID of the classification to retrieve the folder for.
+        Returns:
+            Optional[str]: The name of the folder associated with the classification ID,
+                           or None if no folder is found or an error occurs.
+        """
         try:
             query = "SELECT folder_name FROM classification_folders WHERE classification_id = %s"
             self.cursor.execute(query, (classification_id,))
@@ -96,7 +159,25 @@ class EmailDatabase:
             logging.error(f"Error retrieving folder for classification: {e}")
             return None
 
-    def log_email_processing(self, sequence_number: str, hash_id: str, source_folder: str, destination_folder: str, status: str):
+    def log_email_processing(self, sequence_number: str, hash_id: str, source_folder: str, destination_folder: str, status: str) -> None:
+        """
+        Logs email processing details.
+
+        This method inserts a new record into the email_processing_log table with the provided
+        sequence_number, hash_id, source_folder, destination_folder, and status. If the insertion
+        is successful, the transaction is committed. If an error occurs, the transaction is rolled
+        back and an error message is logged.
+
+        Args:
+            sequence_number (str): The sequence number of the email processing event.
+            hash_id (str): The hash ID of the email.
+            source_folder (str): The source folder of the email.
+            destination_folder (str): The destination folder of the email.
+            status (str): The status of the email processing event.
+
+        Raises:
+            MySQLdb.Error: If an error occurs during the database operation.
+        """
         try:
             query = """
                 INSERT INTO email_processing_log (sequence_number, hash_id, source_folder, destination_folder, status)
@@ -109,7 +190,22 @@ class EmailDatabase:
             logging.error(f"Error logging email processing: {e}")
             self.connection.rollback()
 
-    def add_folder_and_classification(self, classification_id: str, folder_name: str):
+    def add_folder_and_classification(self, classification_id: str, folder_name: str) -> None:
+        """
+        Adds a folder and classification mapping to the database.
+
+        This method ensures that the folder_name exists in the classification_folders table
+        for the given classification_id. If the folder already exists, a warning is logged.
+        If the classification_id does not exist in the classifications table, it is added.
+        Finally, the folder-classification mapping is inserted into the classification_folders table.
+
+        Args:
+            classification_id (str): The ID of the classification.
+            folder_name (str): The name of the folder to map to the classification.
+
+        Raises:
+            MySQLdb.Error: If an error occurs during the database operation.
+        """
         try:
             # Ensure the folder_name exists in the classification_folders table for the classification_id
             check_folder_query = """
@@ -142,7 +238,7 @@ class EmailDatabase:
             logging.error(f"Error adding folder and classification: {e}")
             self.connection.rollback()
 
-    def set_trained_flag(self, hash_ids: list[int], trained: bool = True):
+    def set_trained_flag(self, hash_ids: list[int], trained: bool = True) -> None:
         """
         Updates the 'trained' flag for a list of hash IDs.
     
@@ -223,8 +319,17 @@ class EmailDatabase:
             logging.error(f"Error updating mail_que: {e}", exc_info=True)
             return False
 
-    def fetch_mail_from_queue(self, thread_marker: str, batch_size: int):
-        """Fetch emails marked with a specific thread_marker, yielding them one at a time."""
+    def fetch_mail_from_queue(self, thread_marker: str, batch_size: int) -> Generator[str, None, None]:
+        """
+        Fetches email IDs from the mail queue in batches and marks them with the current thread's marker.
+        Args:
+            thread_marker (str): The marker used to identify the current thread.
+            batch_size (int): The number of email IDs to fetch in each batch.
+        Yields:
+            str: The email ID from the mail queue.
+        Raises:
+            MySQLdb.Error: If there is an error fetching emails from the queue.
+        """
         try:
             # Fetch email IDs in batches
             query = f"SELECT x_gm_msgid FROM mail_que WHERE thread_marker = %s LIMIT %s"
@@ -249,8 +354,25 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error fetching emails from queue: {e}")
 
-    def pop_from_que(self, msg_id: int, thread_marker: str):
-        """Remove an email from the queue after processing."""
+    def pop_from_que(self, msg_id: int, thread_marker: str) -> bool:
+        """
+        Removes an email from the queue after processing.
+
+        This method deletes a record from the mail_que table with the provided
+        msg_id and thread_marker. If the deletion is successful, the transaction
+        is committed. If an error occurs, the transaction is rolled back and an
+        error message is logged.
+
+        Args:
+            msg_id (int): The message ID of the email to be removed.
+            thread_marker (str): The thread marker associated with the email.
+
+        Returns:
+            bool: True if the email was successfully removed, False otherwise.
+
+        Raises:
+            MySQLdb.Error: If an error occurs during the database operation.
+        """
         try:
             # Ensure only the current thread can pop its own emails
             query = "DELETE FROM mail_que WHERE x_gm_msgid = %s AND thread_marker = %s"
@@ -300,9 +422,3 @@ class EmailDatabase:
             return 0
         finally:
             self.connection.commit()
-
-# Example usage
-# db = EmailDatabase(host="localhost", user="root", password="password", database="email_db")
-# db.add_email_hash("somehash", "spam", ["ham", "promotion"])
-# db.map_classification_to_folder("spam", "Spam")
-# db.close()

@@ -10,7 +10,6 @@ Classes:
 Functions:
     split_batches: Splits a total number of items into chunks of a specified batch size.
 """
-
 import threading
 import logging
 import os
