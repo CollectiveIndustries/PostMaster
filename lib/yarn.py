@@ -16,10 +16,11 @@ import os
 import shutil
 import gzip
 from datetime import datetime
+import time
 from .post import PostOffice
 from .database import EmailDatabase
 from .MailNet import MailNet
-from .utils import interruptible_sleep
+from .utils import interruptible_sleep, log_progress
 from .config import config
 
 def split_batches(total: int, batch_size: int):
@@ -232,10 +233,10 @@ class TrainerThread(threading.Thread):
 
         The method handles interruptions via a stop event and logs various stages of processing.
         """
-        for start, end in split_batches(total_count, self.batch_size):
+        for start, _end_ in split_batches(total_count, self.batch_size):
             if self.stop_event.is_set():
                 break
-            logging.info(f"Processing batch: {start + 1} to {end} out of {total_count}")
+            logging.info(f"Processing batch: {start + 1} to {_end_} out of {total_count}")
             email_batch = []
 
             for email_id in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
@@ -249,7 +250,7 @@ class TrainerThread(threading.Thread):
                     continue
 
             if not email_batch:
-                logging.warning(f"No emails fetched in batch {start + 1} to {end}. Skipping.")
+                logging.warning(f"No emails fetched in batch {start + 1} to {_end_}. Skipping.")
                 continue
 
             with self.rlock:
@@ -281,7 +282,7 @@ class TrainerThread(threading.Thread):
                 except Exception as e:
                     logging.error(f"Error during batch processing of trained_msg_ids: {e}", exc_info=True)
             else:
-                logging.warning(f"No emails successfully processed in batch {start + 1} to {end}.")
+                logging.warning(f"No emails successfully processed in batch {start + 1} to {_end_}.")
 
         self.post_office.close()
         self.post_office.logout()
@@ -324,25 +325,40 @@ class ClassificationThread(threading.Thread):
             # Fetch X-GM-MSGIDs from the mail_que (the queue of unprocessed emails)
             self.post_office.fetch_X_GM_MSGID(self.name)
 
-            x_gm_msgids = self.email_db.fetch_mail_from_queue(self.batch_size,self.name)
-            if not x_gm_msgids:
-                continue
+            index = 0
+            start_time = time.time()
+            total = self.email_db.fetch_thread_marker_count(self.name)
+            for start, _end_ in split_batches(total, self.batch_size):
+                if self.stop_event.is_set():
+                    break
+                logging.info(f"Processing batch: {start + 1} to {_end_} out of {total}")
 
-            # Fetch the emails using the X-GM-MSGIDs
-            email_batch = self.post_office.fetch_batch(x_gm_msgids)
+                for email in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
+                    if self.stop_event.is_set():
+                        break
+                    try:
+                        email = self.post_office.fetch_single_email(email)
+                        self.email_db.add_email_hash(email.X_GM_MSGID, email.hash)
+                        if not email:
+                            logging.warning(f"Failed to fetch email with X-GM-MSGID '{email}'. Skipping.")
+                            continue
 
-            # Classify the emails using the model
-            classifications = self.mail_net.classify(email_batch)
+                        if self.mail_net.classify(email) == 0:
+                            self.post_office.move(email.X_GM_MSGID, "spam")
+                            logging.debug(f"Email with X-GM-MSGID '{email.X_GM_MSGID}' classified as spam.")
+                        else:
+                            self.post_office.move(email.X_GM_MSGID, "ham")
+                            logging.debug(f"Email with X-GM-MSGID '{email.X_GM_MSGID}' classified as ham.")
 
-            # Process the classifications: move the email to the appropriate folder
-            for msgid, label in zip(x_gm_msgids, classifications):
-                target_folder = "spam" if label == 1 else "ham"
+                        self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
 
-                # Move email to the target folder
-                self.post_office.move(msgid, target_folder)
+                        if index % 100 == 0:
+                            log_progress(index, total, start_time)
+                        index += 1
 
-                # Remove the email from the queue as it's processed
-                self.email_db.pop_from_que(msgid, self.name)
+                    except Exception as e:
+                        logging.error(f"Failed to fetch email with X-GM-MSGID '{email}': {e}")
+                        continue
 
             self.post_office.close()
             self.post_office.logout()

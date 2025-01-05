@@ -695,4 +695,17 @@ class EmailHasher:
         sha256_hash = hashlib.sha256(email_content).hexdigest()
         return sha256_hash
 
-    
+def extract_email_data(email: Email):
+    """
+    Extracts data from the email based on configuration settings.
+    """
+    data = []
+    if config.USE_SUBJECT:
+        data.append(email.subject)
+    if config.USE_SENDER:
+        data.append(email.sender)
+    if config.USE_RECIPIENT:
+        data.append(email.recipient)
+    if config.USE_BODY:
+        data.append(email.payload)
+    return " ".join(data)

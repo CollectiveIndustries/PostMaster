@@ -8,8 +8,7 @@ import logging
 import os
 import threading
 from .config import config
-from .utils import extract_email_data
-
+from .post import Email, extract_email_data
 class MailNet():
     def __init__(self, max_vocab_size=10000):
         self.max_vocab_size = max_vocab_size
@@ -51,13 +50,14 @@ class MailNet():
             # Training
             self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
 
-    def classify(self, text: str) -> list[int]:
+    def classify(self, email: Email) -> int:
         """Classify email as spam or ham (0 or 1)."""
         with self.model_lock:
             if not self.model:
                 logging.error("Model is not trained or loaded. Please train or load a model before classification.")
                 raise ValueError("Model is not trained or loaded. Please train or load a model before classification.")
-            X = self.preprocess_data([text])
+            email_text = extract_email_data(email)
+            X = self.preprocess_data([email_text])
             predictions = self.model.predict(X)
             return 1 if predictions[0] > 0.5 else 0
 
