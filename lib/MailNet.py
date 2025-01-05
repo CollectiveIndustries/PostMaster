@@ -24,12 +24,31 @@ class MailNet():
 
         return pad_sequences(sequences, maxlen=self.max_sequence_length, padding='post', truncating='post')
 
-    def train(self, email_text, labels, epochs=50, batch_size=64):
-        """Train the spam filter model."""
-        with self.model_lock:
-            early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+    def train(self, email_lst: list[Email], labels: list[int], epochs: int = 50, batch_size: int = 64) -> None:
+        """Train the spam filter model.
 
-            text = [ extract_email_data(email) for email in email_text]
+        Args:
+            email_lst (list): List of email objects to be used for training.
+            labels (list): List of labels corresponding to the email objects.
+            epochs (int, optional): Number of epochs to train the model. Defaults to 50.
+            batch_size (int, optional): Batch size for training. Defaults to 64.
+        """
+        with self.model_lock:
+            # Filter out emails with None attributes and adjust the labels accordingly
+            valid_data = [
+                (email, label) for email, label in zip(email_lst, labels)
+                if all(getattr(email, attr, None) is not None for attr in ['subject', 'sender', 'recipient', 'payload'])
+            ]
+
+            # Unpack filtered emails and labels
+            if not valid_data:
+                logging.warning("No valid emails found for training. Skipping training process.")
+                return
+
+            email_lst, labels = zip(*valid_data)  # Unpack back into separate lists
+
+            # Prepare text data and labels
+            text = [extract_email_data(email) for email in email_lst]
 
             # Tokenizer fit
             self.tokenizer.fit_on_texts(text)
@@ -47,8 +66,17 @@ class MailNet():
 
             self.model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
 
-            # Training
-            self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
+            # Training with early stopping
+            early_stopping = tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss', patience=3, restore_best_weights=True
+            )
+            self.model.fit(
+                X, y,
+                epochs=epochs,
+                batch_size=batch_size,
+                validation_split=0.2,
+                callbacks=[early_stopping]
+            )
 
     def classify(self, email: Email) -> int:
         """Classify email as spam or ham (0 or 1)."""

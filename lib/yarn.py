@@ -264,7 +264,7 @@ class TrainerThread(threading.Thread):
             for email in email_batch:
                 try:
                     self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
-                    self.email_db.add_email_hash(email.X_GM_MSGID, email.hash)
+                    self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
                     self.email_db.log_email_processing(email.X_GM_MSGID, email.hash,self.src, self.dst,"trained")
                     trained_msg_ids.append(email.X_GM_MSGID)
                 except Exception as e:
@@ -338,16 +338,18 @@ class ClassificationThread(threading.Thread):
                         break
                     try:
                         email = self.post_office.fetch_single_email(email)
-                        self.email_db.add_email_hash(email.X_GM_MSGID, email.hash)
                         if not email:
                             logging.warning(f"Failed to fetch email with X-GM-MSGID '{email}'. Skipping.")
                             continue
 
-                        if self.mail_net.classify(email) == 0:
-                            self.post_office.move(email.X_GM_MSGID, "spam")
+                        class_id = self.mail_net.classify(email)
+                        self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, class_id)
+                        self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.mailbox, config.SPAM_FOLDER if class_id == 0 else config.HAM_FOLDER, "classified")
+                        if class_id == 0:
+                            self.post_office.move(email.X_GM_MSGID, config.SPAM_FOLDER)
                             logging.debug(f"Email with X-GM-MSGID '{email.X_GM_MSGID}' classified as spam.")
                         else:
-                            self.post_office.move(email.X_GM_MSGID, "ham")
+                            self.post_office.move(email.X_GM_MSGID, config.HAM_FOLDER)
                             logging.debug(f"Email with X-GM-MSGID '{email.X_GM_MSGID}' classified as ham.")
 
                         self.email_db.pop_from_que(email.X_GM_MSGID, self.name)

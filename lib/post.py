@@ -406,7 +406,7 @@ class PostOffice():
                 # Search for the email using X-GM-MSGID
                 status, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
                 if status != "OK" or not data or not data[0]:
-                    logging.error(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
+                    logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
                     continue
 
                 # Fetch the email using its UID
