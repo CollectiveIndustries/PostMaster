@@ -105,13 +105,13 @@ class MailNet():
     def load_model(self, model_path=f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras"):
         """Load a saved model from disk or create a new one if it doesn't exist."""
         if os.path.exists(model_path):
-            logging.info(f"Loading model from {model_path}")
+            logging.info(f"Loading model from '{model_path}'")
             self.model = load_model(model_path)
         else:
-            logging.warning(f"Model file {model_path} not found. Creating a new model.")
+            logging.warning(f"Model file '{model_path}' not found. Creating a new model.")
             self.model = self._create_model()
             self.model.save(model_path)
-            logging.info(f"New model created and saved to {model_path}")
+            logging.info(f"New model created and saved to '{model_path}'")
 
     def _create_model(self):
         """Define and return a new TensorFlow model."""

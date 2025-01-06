@@ -131,7 +131,7 @@ class Email:
             logging.debug(f"Extracted X-GM-MSGID: {msgid}, Sequence: {msg_sequence}, Size: {email_size}")
         except Exception as e:
             logging.error(f"Error extracting message parts: {e}")
-        
+
         return msgid, msg_sequence, email_size
 
     def _get_subject(self, msg):
@@ -215,10 +215,10 @@ class PostOffice():
         """
         while not self._StopEvent.is_set():
             try:
-                logging.info(f"Attempting to connect to IMAP server {self.url}:{self.port}.")
+                logging.debug(f"Attempting to connect to IMAP server {self.url}:{self.port}.")
                 # Check network connectivity
                 with socket.create_connection((self.url, self.port), timeout=10):
-                    logging.info(f"Network connectivity to {self.url}:{self.port} verified.")
+                    logging.debug(f"Network connectivity to {self.url}:{self.port} verified.")
 
                 # Attempt IMAP connection
                 self.srv = imaplib.IMAP4_SSL(self.url, self.port)
@@ -377,6 +377,38 @@ class PostOffice():
             if count % 100 == 0 or count == len(x_gm_msgids):
                 log_progress(count, total_emails, start_time)
 
+    def search_with_retry(self, x_gm_msgid: int) -> str | None:
+        """
+        Searches for an email with the given X-GM-MSGID.
+
+        Args:
+            x_gm_msgid (int): The X-GM-MSGID of the email to search for.
+
+        Returns:
+            str | None: The UID of the email if found, otherwise None.
+
+        This method attempts to search for an email. If a failure occurs,
+        it reconnects, reselects the mailbox, and retries the search.
+        """
+        count = 0
+        while True:
+            try:
+                # Perform the search
+                status, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+                if status == "OK" and data:
+                    if data[0] == b'':
+                        logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
+                        return None
+                    logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} found.")
+                    return data
+            except Exception as e:
+                logging.warning(f"Search failed for X-GM-MSGID {x_gm_msgid}: {e}. Attempt {count + 1}")
+                self.connect()
+                self.select_box(self.mailbox)
+
+            logging.debug(f"Retrying search for X-GM-MSGID {x_gm_msgid}.")
+            count += 1
+
     def fetch_single_email(self, x_gm_msgid: int) -> Email | None:
         """
         Fetches a single email based on the provided X-GM-MSGID.
@@ -386,13 +418,6 @@ class PostOffice():
 
         Returns:
             Email | None: The fetched Email object if successful, otherwise None.
-
-        This method attempts to fetch an email from the server using the provided X-GM-MSGID.
-        It retries the operation up to 3 times in case of failure. If the email is found and
-        successfully fetched, it returns an Email object. If the email is not found or an error
-        occurs during the fetch attempts, it returns None.
-
-        The method logs detailed debug information about each attempt and any errors encountered.
         """
         logging.debug(f"Fetching email with X-GM-MSGID {x_gm_msgid}.")
         retry_count = 3
@@ -401,18 +426,15 @@ class PostOffice():
             logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email with X-GM-MSGID {x_gm_msgid}.")
             try:
                 # Ensure connection is active
-                self.reconnect()
+                self.connect()
 
-                # Search for the email using X-GM-MSGID
-                status, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
-                if status != "OK" or not data or not data[0]:
-                    logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
-                    continue
+                # Use the extracted search_with_retry method
+                uid = self.search_with_retry(x_gm_msgid)
+                if not uid:
+                    continue  # Skip to the next retry if the email is not found
 
                 # Fetch the email using its UID
-                uid = data[0].split()[0]
-                result, raw_imap_msg_data = self.srv.fetch(uid, "(RFC822)")
-
+                result, raw_imap_msg_data = self.srv.fetch(uid[0].split()[0], "(RFC822)")
                 if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
                     logging.debug(f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}.")
 
@@ -429,7 +451,7 @@ class PostOffice():
                 logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
             time.sleep(2)
 
-        logging.debug7(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
+        logging.debug(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
         return None
 
     def move(self, destination_folder: str, x_gm_msgid: str):
@@ -605,7 +627,7 @@ class PostOffice():
                 raise ValueError("Couldn't extract the number of messages from the server response.")
 
         except Exception as e:
-            logging.error(f"An error occurred while fetching the total emails in {folder}: {e}", exc_info=True)
+            logging.error(f"An error occurred while fetching the total emails in '{folder}': {e}", exc_info=True)
             return 0  # Return 0 if there is an error
 
     def keep_alive(self):
@@ -640,7 +662,7 @@ class PostOffice():
                 return
 
             ids = data[0].split()
-            logging.info(f"Fetching {len(ids)} IDs from {self.mailbox}")
+            logging.info(f"Fetching {len(ids)} IDs from '{self.mailbox}'")
             start_time = time.time()
 
             for index, num in enumerate(ids, start=1):

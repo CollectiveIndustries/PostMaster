@@ -12,7 +12,7 @@ class DaemonThread(threading.Thread):
         self.thread = None  # Thread instance
 
         logging.basicConfig(level=logging.INFO)
-        logging.info(f"DaemonThread {self.name} initilized.")
+        logging.info(f"DaemonThread '{self.name}' initilized.")
 
     def start(self):
         """Start the daemon thread."""

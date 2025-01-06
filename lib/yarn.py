@@ -196,7 +196,7 @@ class TrainerThread(threading.Thread):
                 self.post_office.connect()
                 self.post_office.select_box(readonly=False)
 
-                logging.info(f"Fetching list of mail from {self.src}")
+                logging.info(f"Fetching list of mail from '{self.src}'")
                 self.post_office.fetch_X_GM_MSGID(self.name)
 
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
@@ -204,17 +204,17 @@ class TrainerThread(threading.Thread):
                 if total_count != 0:
                     logging.info(f"Total emails to process: {total_count} for thread_marker: {self.name}")
                     self._ProcessesBatches_(total_count)
-                    logging.info(f"Training on {self.src} emails completed. Waiting for next cycle.")
+                    logging.info(f"Training on '{self.src}' emails completed. Waiting for next cycle.")
                 else:
-                    logging.info(f"No emails to process in {self.src}. Waiting for next cycle.")
+                    logging.info(f"No emails to process in '{self.src}'. Waiting for next cycle.")
 
                 self.wait_barrier() # Wait for thread sync
                 interruptible_sleep(self.SleepTime, self.stop_event) # Sleep till next cycle
 
         except Exception as e:
-            logging.error(f"Error in {self.src} trainer thread: {e}", exc_info=True)
+            logging.error(f"Error in '{self.src}' trainer thread: {e}", exc_info=True)
 
-        logging.info(f"{self.src} trainer thread stopped.")
+        logging.info(f"'{self.src}' trainer thread stopped.")
         self.wait_barrier()
 
     def _ProcessesBatches_(self, total_count) -> None:
@@ -258,7 +258,7 @@ class TrainerThread(threading.Thread):
             # Train the model
             try:
                 with self.rlock:
-                    logging.info(f"Training on {len(email_batch)} {self.src} emails.")
+                    logging.info(f"Training on {len(email_batch)} '{self.src}' emails.")
                     labels = [self.class_id] * len(email_batch)
                     self.mail_net.train(email_batch, labels)
                     self.mail_net.save_model()
@@ -269,7 +269,7 @@ class TrainerThread(threading.Thread):
 
             # Process emails, move them, and update the database
             trained_msg_ids = []
-            logging.info(f"Moving {len(email_batch)} emails to {self.dst}.")
+            logging.info(f"Moving {len(email_batch)} emails to '{self.dst}'.")
             for email in email_batch:
                 try:
                     # Move email to destination folder
