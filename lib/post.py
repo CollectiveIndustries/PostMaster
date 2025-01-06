@@ -41,11 +41,11 @@ import hashlib
 import re
 import socket
 from typing import Generator
-from email.header import decode_header
 from imaplib import IMAP4
-from .config import config
-from .utils import log_progress
 from .database import EmailDatabase
+from email.header import decode_header
+from .utils import log_progress
+from .config import config
 
 class Email:
     """

@@ -254,7 +254,7 @@ class EmailDatabase:
             
             # Create placeholders for the query
             placeholders = ', '.join(['%s'] * len(hash_ids))
-            query = f"UPDATE email_hashes SET trained = %s WHERE hash_id IN ({placeholders})"
+            query = f"UPDATE email_hashes SET trained = %s WHERE X_GM_MSGID IN ({placeholders})"
             
             # Execute the query with all hash_ids
             self.cursor.execute(query, [trained, *hash_ids])

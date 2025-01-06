@@ -1,15 +1,15 @@
-import pickle
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential, load_model # type: ignore
 from tensorflow.keras.layers import Dense, Embedding, LSTM, Dropout, Input # type: ignore
 from tensorflow.keras.preprocessing.text import Tokenizer # type: ignore
 from tensorflow.keras.preprocessing.sequence import pad_sequences # type: ignore
+import pickle
 import logging
 import os
 import threading
-from .config import config
 from .post import Email, extract_email_data
+from .config import config
 class MailNet():
     def __init__(self, max_vocab_size=10000):
         self.max_vocab_size = max_vocab_size
