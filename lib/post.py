@@ -209,7 +209,7 @@ class PostOffice():
     def connect(self, retry_delay: int = 10):
         """
         Establish a connection to the IMAP server in an endless loop unless stop_event is set.
-        
+
         Parameters:
         - retry_delay (int): Delay in seconds between retries.
         """
@@ -390,6 +390,7 @@ class PostOffice():
         This method attempts to search for an email. If a failure occurs,
         it reconnects, reselects the mailbox, and retries the search.
         """
+        self.check_imap_state()
         count = 0
         while True:
             try:
@@ -403,8 +404,6 @@ class PostOffice():
                     return data
             except Exception as e:
                 logging.warning(f"Search failed for X-GM-MSGID {x_gm_msgid}: {e}. Attempt {count + 1}")
-                self.connect()
-                self.select_box(self.mailbox)
 
             logging.debug(f"Retrying search for X-GM-MSGID {x_gm_msgid}.")
             count += 1
@@ -426,7 +425,7 @@ class PostOffice():
             logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email with X-GM-MSGID {x_gm_msgid}.")
             try:
                 # Ensure connection is active
-                self.connect()
+                self.check_imap_state
 
                 # Use the extracted search_with_retry method
                 uid = self.search_with_retry(x_gm_msgid)
@@ -693,6 +692,46 @@ class PostOffice():
 
         except Exception as e:
             logging.error(f"Error fetching X-GM-MSGIDs: {e}", exc_info=True)
+
+    def check_imap_state(self):
+        """
+        Ensures that the IMAP connection is in the correct state for operations.
+        Handles transitions from NONAUTH to AUTH to SELECTED as needed.
+
+        Args:
+            mailbox (str): The mailbox to select (if required). Defaults to None.
+
+        Raises:
+            Exception: If the connection cannot be brought to the required state.
+        """
+        try:
+            # If the connection is in NONAUTH state, reconnect and authenticate
+            if self.srv.state == "NONAUTH":
+                logging.debug("IMAP connection in NONAUTH state. Reconnecting...")
+                self.connect()
+
+            # If the connection is in AUTH state, select the mailbox if needed
+            if self.srv.state == "AUTH":
+                if self.mailbox:
+                    logging.debug(f"IMAP connection in AUTH state. Selecting mailbox '{self.mailbox}'...")
+                    status, _ = self.srv.select(self.mailbox)
+                    if status != "OK":
+                        raise Exception(f"Failed to select mailbox '{self.mailbox}'.")
+                else:
+                    logging.debug("IMAP connection in AUTH state. No mailbox specified to select.")
+
+            # If the connection is already in SELECTED state, ensure the correct mailbox is selected
+            if self.srv.state == "SELECTED" and self.mailbox:
+                current_mailbox = self.srv.response("SELECT")[1]
+                if current_mailbox and current_mailbox[0].decode().strip().lower() != self.mailbox.lower():
+                    logging.debug(f"Switching mailbox from '{current_mailbox[0].decode()}' to '{self.mailbox}'...")
+                    status, _ = self.srv.select(self.mailbox)
+                    if status != "OK":
+                        raise Exception(f"Failed to switch to mailbox '{self.mailbox}'.")
+
+        except Exception as e:
+            logging.error(f"Error ensuring IMAP state: {e}", exc_info=True)
+            raise
 
 
 class EmailHasher:
