@@ -697,10 +697,10 @@ class PostOffice():
         """
         Ensures that the IMAP connection is in the correct state for operations.
         Handles transitions from NONAUTH to AUTH to SELECTED as needed.
-
+    
         Args:
             mailbox (str): The mailbox to select (if required). Defaults to None.
-
+    
         Raises:
             Exception: If the connection cannot be brought to the required state.
         """
@@ -709,7 +709,7 @@ class PostOffice():
             if self.srv.state == "NONAUTH":
                 logging.debug("IMAP connection in NONAUTH state. Reconnecting...")
                 self.connect()
-
+    
             # If the connection is in AUTH state, select the mailbox if needed
             if self.srv.state == "AUTH":
                 if self.mailbox:
@@ -719,16 +719,15 @@ class PostOffice():
                         raise Exception(f"Failed to select mailbox '{self.mailbox}'.")
                 else:
                     logging.debug("IMAP connection in AUTH state. No mailbox specified to select.")
-
+    
             # If the connection is already in SELECTED state, ensure the correct mailbox is selected
             if self.srv.state == "SELECTED" and self.mailbox:
-                current_mailbox = self.srv.response("SELECT")[1]
-                if current_mailbox and current_mailbox[0].decode().strip().lower() != self.mailbox.lower():
-                    logging.debug(f"Switching mailbox from '{current_mailbox[0].decode()}' to '{self.mailbox}'...")
-                    status, _ = self.srv.select(self.mailbox)
-                    if status != "OK":
-                        raise Exception(f"Failed to switch to mailbox '{self.mailbox}'.")
-
+                # Try to fetch the currently selected mailbox using the STATUS command
+                logging.debug(f"Ensuring the correct mailbox is selected: {self.mailbox}")
+                status, _ = self.srv.select(self.mailbox)  # Re-select the desired mailbox directly
+                if status != "OK":
+                    raise Exception(f"Failed to ensure mailbox '{self.mailbox}' is selected.")
+    
         except Exception as e:
             logging.error(f"Error ensuring IMAP state: {e}", exc_info=True)
             raise

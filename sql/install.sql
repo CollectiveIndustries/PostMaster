@@ -7,7 +7,6 @@
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
-
 -- Dumping database structure for SpamVanquisher
 DROP DATABASE IF EXISTS `SpamVanquisher`;
 CREATE DATABASE IF NOT EXISTS `SpamVanquisher` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
@@ -35,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `classification_folders` (
   UNIQUE KEY `folder_name` (`folder_name`),
   KEY `classification_id` (`classification_id`),
   CONSTRAINT `classification_folders_ibfk_1` FOREIGN KEY (`classification_id`) REFERENCES `classifications` (`classification_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=0 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
 
@@ -49,6 +48,8 @@ CREATE TABLE IF NOT EXISTS `email_hashes` (
   `trained` tinyint(1) DEFAULT 0,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`hash_id`),
+  UNIQUE KEY `hash_id` (`hash_id`),
+  UNIQUE KEY `X_GM_MSGID` (`X_GM_MSGID`),
   KEY `idx_email_hashes_classification` (`classification_id`),
   KEY `idx_email_hashes_x_gm_msgid` (`X_GM_MSGID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -83,7 +84,7 @@ CREATE TABLE IF NOT EXISTS `mail_que` (
   `thread_marker` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `x_gm_msgid` (`x_gm_msgid`)
-) ENGINE=InnoDB AUTO_INCREMENT=0 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
 
