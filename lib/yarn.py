@@ -279,16 +279,16 @@ class TrainerThread(threading.Thread):
                     # Add email hash and log email processing
                     self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
                     self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.src, self.dst, "trained")
-                    
+
                     # Add to trained message IDs list
                     trained_msg_ids.append(email.X_GM_MSGID)
-            
+
                     # Update database for processed emails
                     self.email_db.set_trained_flag([email.X_GM_MSGID])
                     success = self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
                     if not success:
                         logging.error(f"Failed to pop email with X-GM-MSGID '{email.X_GM_MSGID}' from queue.")
-            
+
                 except Exception as e:
                     logging.error(f"Failed to process email with X-GM-MSGID '{getattr(email, 'X_GM_MSGID', 'Unknown')}': {e}", exc_info=True)
                 
@@ -299,7 +299,6 @@ class TrainerThread(threading.Thread):
             # Log warning if no emails were processed successfully
             if not trained_msg_ids:
                 logging.warning(f"No emails successfully processed in batch {start + 1} to {_end_}.")
-            
 
         # Clean up the connection
         try:
