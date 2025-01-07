@@ -88,6 +88,15 @@ class ThreadBase(threading.Thread):
         self.post_office.close()
         self.post_office.logout()
 
+    def ThreadSleep(self):
+        """
+        Sleeps the thread till ll the threads have reached the barrier.
+        Cleans up all connections before sleeping.
+        """
+        self.CleanUpConnections()
+        self.mail_net.unload_model()
+        self.wait_barrier()
+
 class TrainerThread(ThreadBase):
     def __init__(
         self, 
@@ -148,21 +157,20 @@ class TrainerThread(ThreadBase):
 
                 if total_count != 0:
                     logging.info(f"Total emails to process: {total_count} for thread_marker: {self.name}")
+                    self.mail_net.load_model()
                     self._ProcessesBatches_(total_count)
                     logging.info(f"Training on '{self.src}' emails completed. Waiting for next cycle.")
                 else:
                     logging.info(f"No emails to process in '{self.src}'. Waiting for next cycle.")
 
-                self.CleanUpConnections()
-                self.wait_barrier() # Wait for thread sync
+                self.ThreadSleep()
                 interruptible_sleep(self.SleepTime, self.stop_event) # Sleep till next cycle
 
         except Exception as e:
             logging.error(f"Error in '{self.src}' trainer thread: {e}", exc_info=True)
 
         logging.info(f"'{self.src}' trainer thread stopped. Waiting for other threads to finish.")
-        self.CleanUpConnections()
-        self.wait_barrier()
+        self.ThreadSleep()
 
     def _ProcessesBatches_(self, total_count) -> None:
         """
@@ -288,7 +296,8 @@ class ClassificationThread(ThreadBase):
 
         while not self.stop_event.is_set():
             # Wait for sync_event to ensure training threads have completed
-            self.wait_barrier()
+            self.ThreadSleep()
+            self.mail_net.load_model()
 
             self.post_office.connect()
             self.post_office.select_box(readonly=False)
@@ -333,10 +342,8 @@ class ClassificationThread(ThreadBase):
                         logging.error(f"Failed to fetch email with X-GM-MSGID '{email}': {e}")
                         continue
 
-            self.CleanUpConnections()
-
         logging.info("Shutting down classification thread! Waiting for other threads to finish.")
-        self.wait_barrier()
+        self.ThreadSleep()
 
 class LogRotation(threading.Thread):
     def __init__(self, stop_event: threading.Event):

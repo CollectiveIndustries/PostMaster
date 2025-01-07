@@ -124,3 +124,16 @@ class MailNet():
         ])
         model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
         return model
+
+    def unload_model(self):
+        """Unload the model and release resources."""
+        if self.model is not None:
+            logging.info("Unloading model and clearing resources.")
+            self.model = None  # Remove Python reference
+            from keras import backend as K
+            K.clear_session()  # Clear TensorFlow backend session
+            import gc
+            gc.collect()       # Trigger garbage collection
+            logging.info("Model unloaded successfully.")
+        else:
+            logging.warning("No model is loaded to unload.")

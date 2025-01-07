@@ -163,7 +163,7 @@ class Email:
             return payload.decode("utf-8", errors="ignore") if payload else ""
 
     def __repr__(self):
-        return f"Email(subject={self.subject}, sender={self.sender}, recipient={self.recipient}, uid={self.uid})"
+        return f"Email(subject={self.subject}, sender={self.sender}, recipient={self.recipient}, X_GM_MSGID={self.X_GM_MSGID})"
 
     def _decode_email_header(self, header_value) -> str:
         if not header_value:
