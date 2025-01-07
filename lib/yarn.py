@@ -193,8 +193,7 @@ class TrainerThread(threading.Thread):
 
         try:
             while not self.stop_event.is_set():
-                self.post_office.connect()
-                self.post_office.select_box(readonly=False)
+                self.post_office.check_imap_state(readonly=False)
 
                 logging.info(f"Fetching list of mail from '{self.src}'")
                 self.post_office.fetch_X_GM_MSGID(self.name)
@@ -208,13 +207,15 @@ class TrainerThread(threading.Thread):
                 else:
                     logging.info(f"No emails to process in '{self.src}'. Waiting for next cycle.")
 
+                self.CleanUpConnections()
                 self.wait_barrier() # Wait for thread sync
                 interruptible_sleep(self.SleepTime, self.stop_event) # Sleep till next cycle
 
         except Exception as e:
             logging.error(f"Error in '{self.src}' trainer thread: {e}", exc_info=True)
 
-        logging.info(f"'{self.src}' trainer thread stopped.")
+        logging.info(f"'{self.src}' trainer thread stopped. Waiting for other threads to finish.")
+        self.CleanUpConnections()
         self.wait_barrier()
 
     def _ProcessesBatches_(self, total_count) -> None:
@@ -237,75 +238,89 @@ class TrainerThread(threading.Thread):
             logging.info(f"Processing batch: {start + 1} to {_end_} out of {total_count}")
 
             email_batch = []
-            for email_id in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
-                if self.stop_event.is_set():
+            while True:
+                fetched_emails = list(self.email_db.fetch_mail_from_queue(self.name, self.batch_size))
+
+                # If no emails are fetched, we're done
+                if not fetched_emails:
+                    logging.debug("No more emails in the queue to process.")
                     break
-                try:
-                    email = self.post_office.fetch_single_email(email_id)
-                    # Validate fetched email
-                    if not email or not hasattr(email, "X_GM_MSGID"):
-                        logging.debug(f"Invalid or incomplete email fetched for ID {email_id}. Skipping.")
+
+                for email_id in fetched_emails:
+                    if self.stop_event.is_set():
+                        break
+                    try:
+                        email = self.post_office.fetch_single_email(email_id)
+                        # Validate fetched email
+                        if not email or not hasattr(email, "X_GM_MSGID"):
+                            logging.debug(f"Invalid or incomplete email fetched for ID {email_id}. Skipping.")
+                            continue
+                        email_batch.append(email)
+
+                        # If the batch is full, process it and start a new one
+                        if len(email_batch) >= self.batch_size:
+                            logging.debug("Batch is full. Proceeding with processing.")
+                            # Process the batch (this would be where your batch handling logic goes)
+                            self.process_batch(email_batch)
+                            email_batch = []  # Reset the batch
+                    except Exception as e:
+                        logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}", exc_info=True)
                         continue
-                    email_batch.append(email)
-                except Exception as e:
-                    logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}", exc_info=True)
-                    continue
 
-            if not email_batch:
-                logging.warning(f"No valid emails fetched in batch {start + 1} to {_end_}. Skipping.")
-                continue
+                # If the fetched emails are less than batch_size and we've exited the loop, process the last batch
+                if len(fetched_emails) < self.batch_size:
+                    logging.debug("Last batch detected. Processing remaining emails.")
+                    break
 
-            # Train the model
-            try:
-                with self.rlock:
-                    logging.info(f"Training on {len(email_batch)} '{self.src}' emails.")
-                    labels = [self.class_id] * len(email_batch)
-                    self.mail_net.train(email_batch, labels)
-                    self.mail_net.save_model()
+            # Process any remaining emails in the batch
+            if email_batch:
+                logging.debug("Processing remaining emails in the final batch.")
+                self.process_batch(email_batch)
 
-            except Exception as e:
-                logging.error(f"Error during model training: {e}", exc_info=True)
-                continue
-
-            # Process emails, move them, and update the database
-            trained_msg_ids = []
-            index = 0
-            logging.info(f"Moving {len(email_batch)} emails to '{self.dst}'.")
-            for email in email_batch:
-                try:
-                    # Move email to destination folder
-                    self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
-                    
-                    # Add email hash and log email processing
-                    self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
-                    self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.src, self.dst, "trained")
-
-                    # Add to trained message IDs list
-                    trained_msg_ids.append(email.X_GM_MSGID)
-
-                    # Update database for processed emails
-                    self.email_db.set_trained_flag([email.X_GM_MSGID])
-                    success = self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
-                    if not success:
-                        logging.error(f"Failed to pop email with X-GM-MSGID '{email.X_GM_MSGID}' from queue.")
-
-                except Exception as e:
-                    logging.error(f"Failed to process email with X-GM-MSGID '{getattr(email, 'X_GM_MSGID', 'Unknown')}': {e}", exc_info=True)
-                
-                if index % 100 == 0 or index == len(email_batch) - 1:
-                    log_progress(index, len(email_batch))
-                index += 1
-            
-            # Log warning if no emails were processed successfully
-            if not trained_msg_ids:
-                logging.warning(f"No emails successfully processed in batch {start + 1} to {_end_}.")
-
-        # Clean up the connection
+    def process_batch(self, email_batch):
+        """Processes a batch of emails for training and moving them to the destination folder."""
         try:
-            self.post_office.close()
-            self.post_office.logout()
+            with self.rlock:
+                logging.info(f"Training on {len(email_batch)} '{self.src}' emails.")
+                labels = [self.class_id] * len(email_batch)
+                self.mail_net.train(email_batch, labels)
+                self.mail_net.save_model()
+
         except Exception as e:
-            logging.error(f"Error during PostOffice cleanup: {e}", exc_info=True)
+            logging.error(f"Error during model training: {e}", exc_info=True)
+
+        # Process emails, move them, and update the database
+        trained_msg_ids = []
+        index = 0
+        logging.info(f"Moving {len(email_batch)} emails to '{self.dst}'.")
+        for email in email_batch:
+            try:
+                # Move email to destination folder
+                self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
+                
+                # Add email hash and log email processing
+                self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
+                self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.src, self.dst, "trained")
+                
+                # Add to trained message IDs list
+                trained_msg_ids.append(email.X_GM_MSGID)
+                
+                # Update database for processed emails
+                self.email_db.set_trained_flag([email.X_GM_MSGID])
+                success = self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
+
+                if not success:
+                    logging.error(f"Failed to pop email with X-GM-MSGID '{email.X_GM_MSGID}' from queue.")
+            except Exception as e:
+                logging.error(f"Failed to process email with X-GM-MSGID '{getattr(email, 'X_GM_MSGID', 'Unknown')}': {e}", exc_info=True)
+            
+            if index % 100 == 0 or index == len(email_batch) - 1:
+                log_progress(index, len(email_batch))
+            index += 1
+        
+        # Log warning if no emails were processed successfully
+        if not trained_msg_ids:
+            logging.warning(f"No emails successfully processed in batch from '{self.src}'.")
 
     def wait_barrier(self):
         """
@@ -320,6 +335,14 @@ class TrainerThread(threading.Thread):
             self.barrier.wait()
         except threading.BrokenBarrierError:
             print(f"{self.name} barrier broken, exiting.")
+
+    def CleanUpConnections(self):
+        """
+        Cleans up the connection to the email server and closes the database connection.
+        """
+        self.email_db.close()
+        self.post_office.close()
+        self.post_office.logout()
 
 class ClassificationThread(threading.Thread):
     def __init__(self, mailbox: str, stop_event: threading.Event, sync_event: threading.Barrier, batch_size: int):

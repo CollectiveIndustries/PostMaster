@@ -694,7 +694,7 @@ class PostOffice():
         except Exception as e:
             logging.error(f"Error fetching X-GM-MSGIDs: {e}", exc_info=True)
 
-    def check_imap_state(self):
+    def check_imap_state(self, readonly: bool = True):
         """
         Ensures that the IMAP connection is in the correct state for operations.
         Handles transitions from NONAUTH to AUTH to SELECTED as needed.
@@ -715,7 +715,7 @@ class PostOffice():
             if self.srv.state == "AUTH":
                 if self.mailbox:
                     logging.debug(f"IMAP connection in AUTH state. Selecting mailbox '{self.mailbox}'...")
-                    status, _ = self.srv.select(self.mailbox)
+                    status, _ = self.srv.select(self.mailbox, readonly=readonly)  # Select the mailbox
                     if status != "OK":
                         raise Exception(f"Failed to select mailbox '{self.mailbox}'.")
                 else:
