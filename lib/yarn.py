@@ -238,6 +238,7 @@ class TrainerThread(ThreadBase):
         trained_msg_ids = []
         index = 0
         logging.info(f"Moving {len(email_batch)} emails to '{self.dst}'.")
+        start_time = time.time()
         for email in email_batch:
             try:
                 # Move email to destination folder
@@ -260,7 +261,7 @@ class TrainerThread(ThreadBase):
                 logging.error(f"Failed to process email with X-GM-MSGID '{getattr(email, 'X_GM_MSGID', 'Unknown')}': {e}", exc_info=True)
             
             if index % 100 == 0 or index == len(email_batch) - 1:
-                log_progress(index, len(email_batch))
+                log_progress(index + 1, len(email_batch), start_time)
             index += 1
         
         # Log warning if no emails were processed successfully
@@ -324,7 +325,7 @@ class ClassificationThread(ThreadBase):
                         self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
 
                         if index % 100 == 0:
-                            log_progress(index, total, start_time)
+                            log_progress(index + 1, total, start_time)
                         index += 1
 
                     except Exception as e:
