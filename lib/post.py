@@ -195,14 +195,14 @@ class PostOffice():
         logging.info("Initializing PostOffice.")
 
         # Email settings
+        self.srv = None
+        self.capabilities = None
         self.email = config.EMAIL_ADDRESS
         self.password = config.PASSWORD
         self.url = config.IMAP_URL
         self.port = int(config.IMAP_PORT)
         self._StopEvent = event
-        self.capabilities = None
         self._check_uidplus_support_()
-        self.srv = None
         self.mailbox = mailbox
         self.database = EmailDatabase()
 
@@ -264,8 +264,16 @@ class PostOffice():
         terminate the session with the IMAP server. It also logs an 
         informational message indicating that the logout was successful.
         """
-        self.srv.logout()
-        logging.info("Logged out of IMAP server.")
+        if self.srv is None:
+            logging.warning("No active IMAP connection to log out from.")
+            return
+        else:
+            try:
+                self.srv.logout()
+                logging.info("Logged out from IMAP server.")
+            except Exception as e:
+                logging.error(f"Error during logout: {e}", exc_info=True)
+                return
 
     def reconnect(self):
         """
@@ -591,8 +599,6 @@ class PostOffice():
                 logging.error("Failed to retrieve server capabilities.")
                 uidplus_supported = False
 
-            logging.info("Logged out from the IMAP server.")
-
             return uidplus_supported
 
         except imaplib.IMAP4.error as e:
@@ -710,7 +716,7 @@ class PostOffice():
             if self.srv.state == "NONAUTH":
                 logging.debug("IMAP connection in NONAUTH state. Reconnecting...")
                 self.connect()
-    
+
             # If the connection is in AUTH state, select the mailbox if needed
             if self.srv.state == "AUTH":
                 if self.mailbox:

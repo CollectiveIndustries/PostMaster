@@ -2,7 +2,6 @@ import logging
 import threading
 import time
 import signal
-from lib.Daemon import DaemonThread
 from lib.config import config
 from lib.yarn import LogRotation, TrainerThread, ClassificationThread
 
@@ -21,7 +20,6 @@ if __name__ == "__main__":
     ham_learn = config.HAM_LEARN
     mail_que = config.INBOX
     ScanTime = int(config.SCAN_TIME)
-    batch_size = config.BATCH_SIZE
 
     # Additional Resources
     signal.signal(signal.SIGTERM, graceful_shutdown)
@@ -33,16 +31,16 @@ if __name__ == "__main__":
 
     # Class Objects
     Logger = LogRotation(StopEvent)
-    SpamTrain = TrainerThread((spam_learn, spam_folder, 0), batch_size, StopEvent, ProcEvent, model_lock)
-    HamTrain = TrainerThread((ham_learn, ham_folder, 1), batch_size , StopEvent,ProcEvent, model_lock)
-    Classification = ClassificationThread(mail_que, StopEvent, ProcEvent, batch_size)
+    SpamTrain = TrainerThread(name="Trainer-Spam",mailbox=(spam_learn, spam_folder, 0), stop_event=StopEvent, barrier=ProcEvent, model_lock=model_lock, batch_size=config.BATCH_SIZE)
+    HamTrain = TrainerThread(name="Trainer-Ham",mailbox=(ham_learn, ham_folder, 1), stop_event=StopEvent, barrier=ProcEvent, model_lock=model_lock, batch_size=config.BATCH_SIZE)
+    Classification = ClassificationThread(name="PostMan",mailbox=mail_que, stop_event=StopEvent, barrier=ProcEvent, batch_size=config.BATCH_SIZE)
 
     # List of threads (DaemonThread calls directly placed in the list)
     threads = [
-        DaemonThread(name="LogRotation", target=Logger.run),
-        DaemonThread(name="Trainer-Spam", target=SpamTrain.run),
-        DaemonThread(name="Trainer-Ham", target=HamTrain.run),
-        DaemonThread(name="PostMan", target=Classification.run),
+        Logger,
+        SpamTrain,
+        HamTrain,
+        Classification
     ]
         # Start all threads
     try:

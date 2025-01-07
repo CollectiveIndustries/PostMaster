@@ -335,8 +335,9 @@ class EmailDatabase:
             query = f"""
                 SELECT x_gm_msgid
                 FROM mail_que
-                WHERE thread_marker = %s LIMIT %s
+                WHERE thread_marker = %s
                 AND processed != -1
+                LIMIT %s
                 """
             self.cursor.execute(query, (thread_marker, batch_size))
             result = self.cursor.fetchall()
