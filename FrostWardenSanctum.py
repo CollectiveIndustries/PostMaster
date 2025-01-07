@@ -66,5 +66,6 @@ if __name__ == "__main__":
         # Ensure threads stop and join gracefully
         for thread in threads:
             logging.info(f"Waiting for thread to exit: {thread.name}")
+            thread.stop()
             thread.join()
         logging.info("All threads have exited cleanly.")

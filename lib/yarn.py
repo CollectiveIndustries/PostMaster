@@ -64,38 +64,50 @@ class ThreadBase(threading.Thread):
         self.daemon = True
 
     def stop(self):
-        self.stop_event.set()
-
-    def wait_barrier(self):
         """
-        Waits at the barrier until all threads have reached this point.
-
-        This method blocks the calling thread until all threads have called 
-        this method. If the barrier is broken, it catches the 
-        threading.BrokenBarrierError and prints an error message indicating 
-        that the barrier is broken and the thread is exiting.
+        Signals the thread to stop and cleans up resources.
         """
-        try:
-            self.barrier.wait()
-        except threading.BrokenBarrierError:
-            print(f"{self.name} barrier broken, exiting.")
+        logging.info(f"Stopping thread: {self.name}")
+        self.stop_event.set()  # Signal the thread to stop
+        self.CleanUpConnections()
 
     def CleanUpConnections(self):
         """
-        Cleans up the connection to the email server and closes the database connection.
+        Cleans up the connections to email server, database, and model resources.
         """
-        self.email_db.close()
-        self.post_office.close()
-        self.post_office.logout()
+        try:
+            if self.email_db:
+                logging.info("Closing database connection...")
+                self.email_db.close()
+        except Exception as e:
+            logging.error(f"Error closing database connection: {e}", exc_info=True)
+
+        try:
+            if self.post_office:
+                logging.info("Closing IMAP connection...")
+                self.post_office.close()
+                self.post_office.logout()
+        except Exception as e:
+            logging.error(f"Error closing IMAP connection: {e}", exc_info=True)
+
+        try:
+            if self.mail_net and hasattr(self.mail_net, "unload_model"):
+                logging.info("Unloading TensorFlow model...")
+                self.mail_net.unload_model()
+        except Exception as e:
+            logging.error(f"Error unloading TensorFlow model: {e}", exc_info=True)
 
     def ThreadSleep(self):
         """
-        Sleeps the thread till ll the threads have reached the barrier.
+        Sleeps the thread till all the threads have reached the barrier.
         Cleans up all connections before sleeping.
         """
         self.CleanUpConnections()
         self.mail_net.unload_model()
-        self.wait_barrier()
+        try:
+            self.barrier.wait()
+        except threading.BrokenBarrierError:
+            print(f"{self.name} barrier broken, exiting.")
 
 class TrainerThread(ThreadBase):
     def __init__(
