@@ -27,6 +27,8 @@ Usage example:
 from typing import Generator, Optional
 import MySQLdb
 import logging
+
+from MySQLdb import OperationalError
 from .config import config
 
 class EmailDatabase:
@@ -49,6 +51,21 @@ class EmailDatabase:
 
         except MySQLdb.Error as e:
             logging.error(f"Error connecting to database: {e}")
+            raise
+
+    def check_and_reconnect(self):
+        """
+        Check if the database connection is active, and reconnect if necessary.
+        """
+        try:
+            if self.connection and self.connection.open:
+                logging.debug("Database connection is active.")
+            else:
+                logging.warning("Database connection is closed. Attempting to reconnect...")
+                self.reconnect()
+                logging.info("Reconnected to the database successfully.")
+        except OperationalError as e:
+            logging.error(f"Failed to reconnect to the database: {e}")
             raise
 
     def reconnect(self):
@@ -400,11 +417,11 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error popping from mail_que: {e}", exc_info=True)
             return False
-        
+
     def fetch_thread_marker_count(self, thread_marker: str) -> int:
         """
         Fetch the total count of emails for a specific thread_marker.
-        
+
         Args:
             thread_marker (str): The thread_marker to filter by.
 

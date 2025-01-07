@@ -661,6 +661,7 @@ class PostOffice():
         """
         try:
             # Perform an IMAP search for all emails
+            self.check_imap_state()
             result, data = self.srv.search(None, "ALL")
 
             if result != "OK":
@@ -668,6 +669,10 @@ class PostOffice():
                 return
 
             ids = data[0].split()
+            if len(ids) == 0:
+                logging.debug(f"No emails found in {self.mailbox}.")
+                return
+
             logging.info(f"Fetching {len(ids)} IDs from '{self.mailbox}'")
             start_time = time.time()
 
@@ -703,22 +708,27 @@ class PostOffice():
     def check_imap_state(self, readonly: bool = True):
         """
         Ensures that the IMAP connection is in the correct state for operations.
-        Handles transitions from NONAUTH to AUTH to SELECTED as needed.
-    
+        Handles transitions from NONAUTH to AUTH to SELECTED as needed, and re-connects if in LOGOUT state.
+
         Args:
-            mailbox (str): The mailbox to select (if required). Defaults to None.
-    
+            readonly (bool): If True, opens the mailbox in readonly mode.
+
         Raises:
             Exception: If the connection cannot be brought to the required state.
         """
         try:
+            # If the connection is in LOGOUT state, reconnect and authenticate
+            if self.srv.state == "LOGOUT":
+                logging.debug("IMAP connection in LOGOUT state. Reconnecting...")
+                self.connect()
+
             # If the connection is in NONAUTH state, reconnect and authenticate
-            if self.srv.state == "NONAUTH":
+            elif self.srv.state == "NONAUTH":
                 logging.debug("IMAP connection in NONAUTH state. Reconnecting...")
                 self.connect()
 
             # If the connection is in AUTH state, select the mailbox if needed
-            if self.srv.state == "AUTH":
+            elif self.srv.state == "AUTH":
                 if self.mailbox:
                     logging.debug(f"IMAP connection in AUTH state. Selecting mailbox '{self.mailbox}'...")
                     status, _ = self.srv.select(self.mailbox, readonly=readonly)  # Select the mailbox
@@ -726,18 +736,22 @@ class PostOffice():
                         raise Exception(f"Failed to select mailbox '{self.mailbox}'.")
                 else:
                     logging.debug("IMAP connection in AUTH state. No mailbox specified to select.")
-    
+
             # If the connection is already in SELECTED state, ensure the correct mailbox is selected
-            if self.srv.state == "SELECTED" and self.mailbox:
-                # Try to fetch the currently selected mailbox using the STATUS command
+            elif self.srv.state == "SELECTED" and self.mailbox:
                 logging.debug(f"Ensuring the correct mailbox is selected: {self.mailbox}")
                 status, _ = self.srv.select(self.mailbox)  # Re-select the desired mailbox directly
                 if status != "OK":
                     raise Exception(f"Failed to ensure mailbox '{self.mailbox}' is selected.")
-    
+
+            # If none of the above states, raise an error as the connection is in an unexpected state
+            else:
+                raise Exception(f"Unexpected IMAP state: {self.srv.state}")
+
         except Exception as e:
             logging.error(f"Error ensuring IMAP state: {e}", exc_info=True)
             raise
+
 
 
 class EmailHasher:

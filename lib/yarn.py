@@ -139,6 +139,7 @@ class TrainerThread(ThreadBase):
         try:
             while not self.stop_event.is_set():
                 self.post_office.check_imap_state(readonly=False)
+                self.email_db.check_and_reconnect()
 
                 logging.info(f"Fetching list of mail from '{self.src}'")
                 self.post_office.fetch_X_GM_MSGID(self.name)
