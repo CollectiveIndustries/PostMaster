@@ -451,6 +451,7 @@ class PostOffice():
             time.sleep(2)
 
         logging.debug(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
+        self.database.mark_email_as_failed(x_gm_msgid)
         return None
 
     def move(self, destination_folder: str, x_gm_msgid: str):

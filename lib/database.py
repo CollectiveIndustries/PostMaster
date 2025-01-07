@@ -332,7 +332,12 @@ class EmailDatabase:
         """
         try:
             # Fetch email IDs in batches
-            query = f"SELECT x_gm_msgid FROM mail_que WHERE thread_marker = %s LIMIT %s"
+            query = f"""
+                SELECT x_gm_msgid
+                FROM mail_que
+                WHERE thread_marker = %s LIMIT %s
+                AND processed != -1
+                """
             self.cursor.execute(query, (thread_marker, batch_size))
             result = self.cursor.fetchall()
     
@@ -341,7 +346,12 @@ class EmailDatabase:
     
             if x_gm_msgids:
                 # Mark emails with the current thread's marker while fetching them
-                update_query = f"UPDATE mail_que SET thread_marker = %s WHERE x_gm_msgid IN ({','.join(['%s'] * len(x_gm_msgids))})"
+                update_query = f"""
+                    UPDATE mail_que
+                    SET thread_marker = %s
+                    WHERE x_gm_msgid IN ({','.join(['%s'] * len(x_gm_msgids))})
+                    AND processed != -1
+                """
                 self.cursor.execute(update_query, (thread_marker, *x_gm_msgids))
                 self.connection.commit()
     
@@ -375,7 +385,7 @@ class EmailDatabase:
         """
         try:
             # Ensure only the current thread can pop its own emails
-            query = "DELETE FROM mail_que WHERE x_gm_msgid = %s AND thread_marker = %s"
+            query = "DELETE FROM mail_que WHERE x_gm_msgid = %s AND thread_marker = %s AND processed != -1"
             self.cursor.execute(query, (msg_id, thread_marker))
             self.connection.commit()
 
@@ -408,7 +418,7 @@ class EmailDatabase:
                 FROM 
                     SpamVanquisher.mail_que
                 WHERE 
-                    thread_marker = %s;
+                    thread_marker = %s AND processed != -1;
             """
             self.cursor.execute(query, (thread_marker,))
             result = self.cursor.fetchone()
@@ -422,3 +432,28 @@ class EmailDatabase:
             return 0
         finally:
             self.connection.commit()
+
+    def mark_email_as_failed(self, x_gm_msgid: int) -> bool:
+        """
+        Marks an email as failed to process in the `mail_que` table.
+
+        Args:
+            x_gm_msgid (int): The X-GM-MSGID of the email to update.
+
+        Returns:
+            bool: True if the update was successful, False otherwise.
+        """
+        query = "UPDATE `mail_que` SET `processed` = -1 WHERE `x_gm_msgid` = %s"
+        try:
+            # Get a database cursor
+            with self.connection.cursor() as cursor:
+                # Execute the update query
+                cursor.execute(query, (x_gm_msgid,))
+                # Commit the changes to the database
+                self.connection.commit()
+                logging.debug(f"Marked email with X-GM-MSGID {x_gm_msgid} as failed.")
+                return True
+        except Exception as e:
+            logging.error(f"Failed to mark email with X-GM-MSGID {x_gm_msgid} as failed: {e}", exc_info=True)
+            return False
+
