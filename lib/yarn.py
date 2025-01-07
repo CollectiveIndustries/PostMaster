@@ -269,6 +269,7 @@ class TrainerThread(threading.Thread):
 
             # Process emails, move them, and update the database
             trained_msg_ids = []
+            index = 0
             logging.info(f"Moving {len(email_batch)} emails to '{self.dst}'.")
             for email in email_batch:
                 try:
@@ -290,6 +291,10 @@ class TrainerThread(threading.Thread):
             
                 except Exception as e:
                     logging.error(f"Failed to process email with X-GM-MSGID '{getattr(email, 'X_GM_MSGID', 'Unknown')}': {e}", exc_info=True)
+                
+                if index % 100 == 0 or index == len(email_batch) - 1:
+                    log_progress(index, len(email_batch))
+                index += 1
             
             # Log warning if no emails were processed successfully
             if not trained_msg_ids:
