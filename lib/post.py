@@ -348,8 +348,15 @@ class PostOffice():
         logging.info(f"Fetching ({total_emails}) emails from X-GM-MSGID list in chunks of {chunk_size}.")
         start_time = time.time()
 
+        # Handle empty list case
         if not x_gm_msgids:
             logging.warning("Empty X-GM-MSGID list. No emails to fetch.")
+            return
+
+        # Sanitize the X-GM-MSGIDs (ensure they are integers and not empty)
+        x_gm_msgids = [msg_id for msg_id in x_gm_msgids if isinstance(msg_id, int)]
+        if not x_gm_msgids:
+            logging.warning("No valid X-GM-MSGID values found. No emails to fetch.")
             return
 
         # Process the list in chunks
@@ -359,7 +366,9 @@ class PostOffice():
 
             try:
                 self.reconnect()  # Ensure IMAP connection is alive
-                status, search_data = self.srv.search(None, f'X-GM-MSGID {chunk_str}')
+                status, search_data = self.srv.search(None, f'X-GM-MSGID ({chunk_str})')
+
+                # Handle command errors or empty search results
                 if status != "OK" or not search_data or not search_data[0]:
                     logging.warning(f"No emails matched for chunk starting at index {chunk_start}.")
                     continue
@@ -369,6 +378,8 @@ class PostOffice():
 
                 # Fetch emails in bulk for the current chunk
                 result, fetch_data = self.srv.fetch(",".join(uids), "(RFC822)")
+
+                # Handle errors during bulk fetch
                 if result != "OK" or not fetch_data:
                     logging.error(f"Error during bulk fetch for chunk starting at index {chunk_start}.")
                     continue
@@ -378,6 +389,7 @@ class PostOffice():
                         logging.info("Stop signal received. Exiting batch fetch.")
                         return
 
+                    # Validate the data format of the fetched message
                     if not isinstance(raw_imap_msg_data, tuple):
                         logging.error(f"Invalid data format for email. Expected a tuple but got: {type(raw_imap_msg_data)}")
                         continue
@@ -391,11 +403,12 @@ class PostOffice():
                         logging.error(f"Error processing email at index {count - 1}: {e}")
                         logging.debug(f"Raw message data: {raw_imap_msg_data}")
 
-                    # Log progress
+                    # Log progress every 100 emails or when finished
                     if count % 100 == 0 or count == len(x_gm_msgids):
                         log_progress(count, total_emails, start_time)
 
             except Exception as e:
+                # Catch all errors related to fetching and log them
                 logging.error(f"Error during chunk fetch for chunk starting at index {chunk_start}: {e}", exc_info=True)
 
     def search_with_retry(self, x_gm_msgid: int) -> str | None:
@@ -713,8 +726,6 @@ class PostOffice():
                     # Yield the batch of X-GM-MSGIDs
                     yield batch_msgids
 
-                # Log progress every 100 emails
-                log_progress(i + batch_size, len(ids), start_time)
                 self.keep_alive()
 
                 if self._StopEvent.is_set():

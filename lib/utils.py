@@ -3,7 +3,7 @@ import logging
 import time
 from .config import config
 
-def log_progress(index, total, start_time):
+def log_progress(index, total, start_time, stage="Processing"):
     """
     Logs progress and estimated time to completion (ETC) for a loop.
 
@@ -11,6 +11,7 @@ def log_progress(index, total, start_time):
         index (int): The current iteration count (1-based index).
         total (int): The total number of iterations.
         start_time (float): The timestamp when the loop started.
+        stage (str): The current stage or task being logged (default is "Processing").
     """
     elapsed_time = time.time() - start_time
     avg_time_per_item = elapsed_time / index if index > 0 else 0
@@ -29,9 +30,9 @@ def log_progress(index, total, start_time):
     else:
         formatted_etc = f"{hours:02}:{minutes:02}:{seconds:02}"
 
-    # Log the progress and estimated time to completion
+    # Log the progress and estimated time to completion with the stage
     logging.info(
-        f"Processed {index}/{total} items "
+        f"[{stage}] Processed {index}/{total} items "
         f"({index / total:.2%} complete). "
         f"Estimated time till completion: {formatted_etc}"
     )
