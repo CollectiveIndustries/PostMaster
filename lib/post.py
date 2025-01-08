@@ -434,7 +434,7 @@ class PostOffice():
             logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email with X-GM-MSGID {x_gm_msgid}.")
             try:
                 # Ensure connection is active
-                self.check_imap_state
+                self.check_imap_state()
 
                 # Use the extracted search_with_retry method
                 uid = self.search_with_retry(x_gm_msgid)
@@ -653,14 +653,14 @@ class PostOffice():
             logging.warning(f"IMAP connection aborted: {e}. Reconnecting...")
             self.connect()  # Reconnect if the connection is lost
 
-    def fetch_X_GM_MSGID(self, thread_name: str):
+    def fetch_X_GM_MSGID(self, batch_size: int = 100):
         """
-        Fetch all X-GM-MSGIDs from the mailbox and dynamically update the mail queue.
+        Fetch batches of X-GM-MSGIDs from the mailbox and yield them as batches.
 
         Args:
             thread_marker (str): The marker to identify the thread in the mail queue.
+            batch_size (int): The number of messages to fetch in each batch.
         """
-        # TODO refactor into a generator that grabs X-GM-MSGIDs in batches
         try:
             # Perform an IMAP search for all emails
             self.check_imap_state()
@@ -678,31 +678,38 @@ class PostOffice():
             logging.info(f"Fetching {len(ids)} IDs from '{self.mailbox}'")
             start_time = time.time()
 
-            for index, num in enumerate(ids, start=1):
-                # Fetch the email's X-GM-MSGID
-                result, msg_data = self.srv.fetch(num, "(X-GM-MSGID)")
+            # Process emails in batches
+            for i in range(0, len(ids), batch_size):
+                batch_ids = ids[i:i + batch_size]
+
+                # Decode the batch_ids (if they're bytes)
+                batch_ids_str = [id.decode() if isinstance(id, bytes) else str(id) for id in batch_ids]
+
+                # Fetch the X-GM-MSGID for the batch
+                result, msg_data = self.srv.fetch(",".join(batch_ids_str), "(X-GM-MSGID)")
+
 
                 if result == "OK" and msg_data:
-                    # Match the X-GM-MSGID value using a regex
-                    match = re.search(r'X-GM-MSGID (\d+)', str(msg_data))
-                    if match:
-                        x_gm_msgid = int(match.group(1))
+                    batch_msgids = []
+                    for msg in msg_data:
+                        # Decode byte string to regular string and parse for X-GM-MSGID
+                        decoded_msg = msg.decode("utf-8")  # Decode bytes to string
+                        match = re.search(r'X-GM-MSGID (\d+)', decoded_msg)
+                        if match:
+                            batch_msgids.append(int(match.group(1)))
 
-                        # Update the mail queue with the fetched X-GM-MSGID
-                        if self.database.update_mail_queue([x_gm_msgid], thread_name):
-                            logging.debug(f"Added X-GM-MSGID {x_gm_msgid} to mail queue with marker '{thread_name}'.")
+                    # Yield the batch of X-GM-MSGIDs
+                    yield batch_msgids
 
                 # Log progress every 100 emails
-                if index % 100 == 0:
-                    log_progress(index, len(ids), start_time)
-                    self.keep_alive()
+                log_progress(i + batch_size, len(ids), start_time)
+                self.keep_alive()
 
                 if self._StopEvent.is_set():
                     logging.info("Stop signal received. shutting down PostOffice.")
                     break
 
-            if len(ids) > 0:
-                logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
+            logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
 
         except Exception as e:
             logging.error(f"Error fetching X-GM-MSGIDs: {e}", exc_info=True)

@@ -10,6 +10,7 @@ Classes:
 Functions:
     split_batches: Splits a total number of items into chunks of a specified batch size.
 """
+import pickle
 import threading
 import logging
 import os
@@ -163,7 +164,12 @@ class TrainerThread(ThreadBase):
                 self.email_db.check_and_reconnect()
 
                 logging.info(f"Fetching list of mail from '{self.src}'")
-                self.post_office.fetch_X_GM_MSGID(self.name)
+                total = self.post_office.total_emails(self.src)
+                index = 0
+                for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
+                    self.email_db.update_mail_queue(self.name, batch)
+                    log_progress(len(batch) + index, total, time.time())
+                    index += len(batch)
 
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
 
@@ -190,72 +196,83 @@ class TrainerThread(ThreadBase):
 
         Args:
             total_count (int): The total number of emails to process.
-
-        Steps:
-        1. Split total emails into batches.
-        2. Fetch emails for the current batch from the email queue.
-        3. Validate fetched emails before training and processing.
-        4. Train the model using valid emails.
-        5. Move trained emails to the destination folder and update database.
         """
         for start, _end_ in split_batches(total_count, self.batch_size):
             if self.stop_event.is_set():
                 break
+
             logging.info(f"Processing batch: {start + 1} to {_end_} out of {total_count}")
 
             email_batch = []
             while True:
                 fetched_emails = list(self.email_db.fetch_mail_from_queue(self.name, self.batch_size))
 
-                # If no emails are fetched, we're done
-                if not fetched_emails:
+                if not fetched_emails:  # If no emails are fetched, we're done
                     logging.debug("No more emails in the queue to process.")
                     break
+
+                start_time = time.time()
 
                 for email_id in fetched_emails:
                     if self.stop_event.is_set():
                         break
                     try:
                         email = self.post_office.fetch_single_email(email_id)
+
                         # Validate fetched email
                         if not email or not hasattr(email, "X_GM_MSGID"):
                             logging.debug(f"Invalid or incomplete email fetched for ID {email_id}. Skipping.")
                             continue
                         email_batch.append(email)
 
-                        # If the batch is full, process it and start a new one
+                        # Process a full batch
                         if len(email_batch) >= self.batch_size:
                             logging.debug("Batch is full. Proceeding with processing.")
-                            # Process the batch (this would be where your batch handling logic goes)
                             self.process_batch(email_batch)
                             email_batch = []  # Reset the batch
+
                     except Exception as e:
                         logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}", exc_info=True)
                         continue
 
-                # If the fetched emails are less than batch_size and we've exited the loop, process the last batch
-                if len(fetched_emails) < self.batch_size:
+                if len(fetched_emails) < self.batch_size:  # If last batch, process it
                     logging.debug("Last batch detected. Processing remaining emails.")
                     break
 
-            # Process any remaining emails in the batch
-            if email_batch:
+                log_progress(len(email_batch), len(fetched_emails), start_time)
+
+            if email_batch:  # Process remaining emails
                 logging.debug("Processing remaining emails in the final batch.")
                 self.process_batch(email_batch)
 
     def process_batch(self, email_batch):
-        """Processes a batch of emails for training and moving them to the destination folder."""
+        """
+        Processes a batch of emails for training and moving them to the destination folder.
+
+        Args:
+            email_batch (list): List of email objects in the batch.
+        """
         try:
-            with self.rlock:
+            with self.rlock:  # Ensure thread-safe model access
                 logging.info(f"Training on {len(email_batch)} '{self.src}' emails.")
+
+                # Step 1: Fit the tokenizer on the batch
+                email_texts = [email.text for email in email_batch]
+                self.mail_net.fit_tokenizer(email_texts)
+
+                # Step 2: Train the model on the batch
                 labels = [self.class_id] * len(email_batch)
                 self.mail_net.train(email_batch, labels)
+
+                # Step 3: Save the updated model and tokenizer
                 self.mail_net.save_model()
+                with open(f"{config.TRAINING_DATA_PATH}/tokenizer.pkl", "wb") as f:
+                    pickle.dump(self.mail_net.tokenizer, f)
 
         except Exception as e:
             logging.error(f"Error during model training: {e}", exc_info=True)
 
-        # Process emails, move them, and update the database
+        # Step 4: Process emails, move them, and update the database
         trained_msg_ids = []
         index = 0
         logging.info(f"Moving {len(email_batch)} emails to '{self.dst}'.")
@@ -264,14 +281,14 @@ class TrainerThread(ThreadBase):
             try:
                 # Move email to destination folder
                 self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
-                
+
                 # Add email hash and log email processing
                 self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
                 self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.src, self.dst, "trained")
-                
+
                 # Add to trained message IDs list
                 trained_msg_ids.append(email.X_GM_MSGID)
-                
+
                 # Update database for processed emails
                 self.email_db.set_trained_flag([email.X_GM_MSGID])
                 success = self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
@@ -280,12 +297,11 @@ class TrainerThread(ThreadBase):
                     logging.error(f"Failed to pop email with X-GM-MSGID '{email.X_GM_MSGID}' from queue.")
             except Exception as e:
                 logging.error(f"Failed to process email with X-GM-MSGID '{getattr(email, 'X_GM_MSGID', 'Unknown')}': {e}", exc_info=True)
-            
+
             if index % 100 == 0 or index == len(email_batch) - 1:
                 log_progress(index + 1, len(email_batch), start_time)
             index += 1
-        
-        # Log warning if no emails were processed successfully
+
         if not trained_msg_ids:
             logging.warning(f"No emails successfully processed in batch from '{self.src}'.")
 
@@ -309,7 +325,7 @@ class ClassificationThread(ThreadBase):
         while not self.stop_event.is_set():
             # Wait for sync_event to ensure training threads have completed
             self.ThreadSleep()
-            
+
             self.mail_net.load_model()
             self.email_db.check_and_reconnect()
 
@@ -317,7 +333,13 @@ class ClassificationThread(ThreadBase):
             self.post_office.select_box(readonly=False)
 
             # Fetch X-GM-MSGIDs from the mail_que (the queue of unprocessed emails)
-            self.post_office.fetch_X_GM_MSGID(self.name)
+            logging.info(f"Fetching list of mail from '{self.mailbox}'")
+            total = self.post_office.total_emails(self.mailbox)
+            index = 0
+            for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
+                self.email_db.update_mail_queue(self.name, batch)
+                log_progress(len(batch) + index, total, time.time())
+                index += len(batch)
 
             index = 0
             start_time = time.time()

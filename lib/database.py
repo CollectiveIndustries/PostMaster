@@ -306,7 +306,7 @@ class EmailDatabase:
             logging.error(f"Error checking 'trained' flag for hash ID {x_gm_msgid}: {e}")
             return False
 
-    def update_mail_queue(self, msg_ids: list[int], thread_marker: str):
+    def update_mail_queue(self, thread_marker: str, msg_ids: list[int]):
         """Add msg_ids to the queue and mark them with the current thread's marker."""
         # Ensure msg_ids is a list of integers
         if not isinstance(msg_ids, list) or not all(isinstance(i, int) for i in msg_ids):
