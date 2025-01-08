@@ -166,6 +166,18 @@ class Email:
     def __repr__(self):
         return f"Email(subject={self.subject}, sender={self.sender}, recipient={self.recipient}, X_GM_MSGID={self.X_GM_MSGID})"
 
+    def text(self):
+        data = []
+        if config.USE_SUBJECT:
+            data.append(self.subject)
+        if config.USE_SENDER:
+            data.append(self.sender)
+        if config.USE_RECIPIENT:
+            data.append(self.recipient)
+        if config.USE_BODY:
+            data.append(self.payload)
+        return " ".join(data)
+
     def _decode_email_header(self, header_value) -> str:
         if not header_value:
             return "(Unknown)"

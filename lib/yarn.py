@@ -18,7 +18,7 @@ import shutil
 import gzip
 from datetime import datetime
 import time
-from .post import PostOffice
+from .post import PostOffice, Email
 from .database import EmailDatabase
 from .MailNet import MailNet
 from .utils import interruptible_sleep, log_progress
@@ -230,6 +230,7 @@ class TrainerThread(ThreadBase):
                             logging.debug("Batch is full. Proceeding with processing.")
                             self.process_batch(email_batch)
                             email_batch = []  # Reset the batch
+                            logging.info(f"Processed {self.batch_size} emails in the batch.")
 
                     except Exception as e:
                         logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}", exc_info=True)
@@ -245,7 +246,7 @@ class TrainerThread(ThreadBase):
                 logging.debug("Processing remaining emails in the final batch.")
                 self.process_batch(email_batch)
 
-    def process_batch(self, email_batch):
+    def process_batch(self, email_batch: Email) -> None:
         """
         Processes a batch of emails for training and moving them to the destination folder.
 
@@ -257,7 +258,7 @@ class TrainerThread(ThreadBase):
                 logging.info(f"Training on {len(email_batch)} '{self.src}' emails.")
 
                 # Step 1: Fit the tokenizer on the batch
-                email_texts = [email.text for email in email_batch]
+                email_texts = [email.text() for email in email_batch]
                 self.mail_net.fit_tokenizer(email_texts)
 
                 # Step 2: Train the model on the batch
