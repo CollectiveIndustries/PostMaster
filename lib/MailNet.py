@@ -8,7 +8,7 @@ import pickle
 import logging
 import os
 import threading
-from .post import Email, extract_email_data
+from .post import Email
 from .config import config
 
 class MailNet:
