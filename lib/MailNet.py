@@ -68,7 +68,7 @@ class MailNet:
                 logging.warning("No valid emails for training. Skipping training.")
                 return
             email_lst, labels = zip(*valid_data)
-            text = [extract_email_data(email) for email in email_lst]
+            text = [email.text() for email in email_lst]
             X = self.preprocess_data(text)
             y = tf.convert_to_tensor(labels)
 
@@ -90,8 +90,7 @@ class MailNet:
         with self.model_lock:
             if not self.model:
                 raise ValueError("Model is not trained or loaded.")
-            email_text = extract_email_data(email)
-            X = self.preprocess_data([email_text])
+            X = self.preprocess_data([email.text()])
             predictions = self.model.predict(X)
             return 1 if predictions[0] > 0.5 else 0
 
