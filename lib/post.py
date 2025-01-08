@@ -331,85 +331,52 @@ class PostOffice():
     def fetch_batch(self, x_gm_msgids: list[int], chunk_size: int = 100) -> Generator[Email, None, None]:
         """
         Fetch emails in bulk based on provided X-GM-MSGID list, with chunking for large lists.
-
+    
         Args:
             x_gm_msgids (list[int]): List of X-GM-MSGID values to fetch emails for.
             chunk_size (int): Maximum number of X-GM-MSGID values to process in one fetch.
-
+    
         Yields:
             Email: An Email object containing the fetched email data.
-
-        Logs:
-            - Information about the total number of emails to fetch.
-            - Progress of fetching emails.
-            - Errors encountered during fetching and processing emails.
         """
         total_emails = len(x_gm_msgids)
-        logging.info(f"Fetching ({total_emails}) emails from X-GM-MSGID list in chunks of {chunk_size}.")
+        logging.info(f"Fetching {total_emails} emails in chunks of {chunk_size}.")
         start_time = time.time()
-
-        # Handle empty list case
-        if not x_gm_msgids:
-            logging.warning("Empty X-GM-MSGID list. No emails to fetch.")
-            return
-
-        # Sanitize the X-GM-MSGIDs (ensure they are integers and not empty)
-        x_gm_msgids = [msg_id for msg_id in x_gm_msgids if isinstance(msg_id, int)]
-        if not x_gm_msgids:
-            logging.warning("No valid X-GM-MSGID values found. No emails to fetch.")
-            return
-
-        # Process the list in chunks
+    
         for chunk_start in range(0, total_emails, chunk_size):
             chunk = x_gm_msgids[chunk_start:chunk_start + chunk_size]
-            chunk_str = " ".join(map(str, chunk))
-
-            try:
-                self.reconnect()  # Ensure IMAP connection is alive
-                status, search_data = self.srv.search(None, f'X-GM-MSGID ({chunk_str})')
-
-                # Handle command errors or empty search results
-                if status != "OK" or not search_data or not search_data[0]:
-                    logging.warning(f"No emails matched for chunk starting at index {chunk_start}.")
-                    continue
-
-                uids = search_data[0].split()
-                logging.info(f"Found {len(uids)} matching emails for chunk starting at index {chunk_start}.")
-
-                # Fetch emails in bulk for the current chunk
-                result, fetch_data = self.srv.fetch(",".join(uids), "(RFC822)")
-
-                # Handle errors during bulk fetch
-                if result != "OK" or not fetch_data:
-                    logging.error(f"Error during bulk fetch for chunk starting at index {chunk_start}.")
-                    continue
-
-                for count, raw_imap_msg_data in enumerate(fetch_data, start=chunk_start + 1):
-                    if self._StopEvent.is_set():
-                        logging.info("Stop signal received. Exiting batch fetch.")
-                        return
-
-                    # Validate the data format of the fetched message
-                    if not isinstance(raw_imap_msg_data, tuple):
-                        logging.error(f"Invalid data format for email. Expected a tuple but got: {type(raw_imap_msg_data)}")
-                        continue
-
-                    try:
-                        # Create Email object from raw message data
-                        email_obj = Email(raw_imap_msg_data[1])
-                        email_obj.X_GM_MSGID = x_gm_msgids[count - 1]  # Map back to X-GM-MSGID
-                        yield email_obj
-                    except (TypeError, ValueError) as e:
-                        logging.error(f"Error processing email at index {count - 1}: {e}")
-                        logging.debug(f"Raw message data: {raw_imap_msg_data}")
-
-                    # Log progress every 100 emails or when finished
-                    if count % 100 == 0 or count == len(x_gm_msgids):
-                        log_progress(count, total_emails, start_time)
-
-            except Exception as e:
-                # Catch all errors related to fetching and log them
-                logging.error(f"Error during chunk fetch for chunk starting at index {chunk_start}: {e}", exc_info=True)
+            all_uids = []
+    
+            # Search for each X-GM-MSGID and collect UIDs
+            for msg_id in chunk:
+                try:
+                    self.reconnect()  # Ensure IMAP connection is alive
+                    status, search_data = self.srv.search(None, f'X-GM-MSGID {msg_id}')
+                    if status == "OK" and search_data and search_data[0]:
+                        all_uids.extend(search_data[0].split())
+                except Exception as e:
+                    logging.error(f"Error searching for {msg_id}: {e}")
+    
+            # Fetch emails in bulk if UIDs were found
+            if all_uids:
+                try:
+                    result, fetch_data = self.srv.fetch(",".join(all_uids), "(RFC822)")
+                    if result == "OK" and fetch_data:
+                        for raw_data in fetch_data:
+                            if self._StopEvent.is_set():
+                                logging.info("Stop signal received.")
+                                return
+                            if isinstance(raw_data, tuple):
+                                email_obj = Email(raw_data[1])
+                                email_obj.X_GM_MSGID = chunk[0]  # Assign the first X-GM-MSGID in chunk
+                                yield email_obj
+                            else:
+                                logging.error(f"Invalid data format: {type(raw_data)}")
+                except Exception as e:
+                    logging.error(f"Error during bulk fetch: {e}")
+    
+            # Log progress
+            log_progress(chunk_start + len(chunk), total_emails, start_time)
 
     def search_with_retry(self, x_gm_msgid: int) -> str | None:
         """

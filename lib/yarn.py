@@ -187,6 +187,7 @@ class TrainerThread(ThreadBase):
             start_time = time.time()
 
             # Fetch emails in bulk
+            # BUG: this method is failing to fetch emails in bulk with an imaplib error
             for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
                 if self.stop_event.is_set():
                     break
