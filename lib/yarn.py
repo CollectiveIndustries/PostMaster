@@ -120,16 +120,6 @@ class TrainerThread(ThreadBase):
         model_lock: threading.RLock,
         batch_size: int
     ):
-        """
-        Thread for training a classifier on labeled email data.
-
-        Args:
-            mailbox (tuple): Tuple with (source, destination, class_id).
-            batch_size (int): The batch size for training.
-            stop_event (threading.Event): Event to signal when the thread should stop.
-            barrier (threading.Barrier): Synchronization barrier for coordinating thread activity.
-            model_lock (threading.RLock): Lock to ensure thread-safe access to the model.
-        """
         super().__init__(name, mailbox, stop_event, barrier, batch_size)
         self.src, self.dst, self.class_id = mailbox
         self.rlock = model_lock
@@ -138,21 +128,6 @@ class TrainerThread(ThreadBase):
         self.post_office = PostOffice(stop_event, self.src)
 
     def run(self):
-        """
-        Runs the trainer thread for processing emails.
-
-        This method initializes the necessary components for email processing,
-        connects to the post office, fetches emails, and processes them in batches.
-        It continues to run in a loop until the stop event is set.
-
-        Logging:
-            Logs the start and stop of the trainer thread, as well as the progress
-            and any errors encountered during execution.
-
-        Raises:
-            Exception: If an error occurs during the execution of the thread.
-
-        """
         logging.info(f"Starting {self.src} trainer thread.")
         self.post_office = PostOffice(self.stop_event, self.src)
 
@@ -182,7 +157,7 @@ class TrainerThread(ThreadBase):
                     logging.info(f"No emails to process in '{self.src}'. Waiting for next cycle.")
 
                 self.ThreadSleep()
-                interruptible_sleep(self.SleepTime, self.stop_event) # Sleep till next cycle
+                interruptible_sleep(self.SleepTime, self.stop_event)
 
         except Exception as e:
             logging.error(f"Error in '{self.src}' trainer thread: {e}", exc_info=True)
@@ -191,12 +166,6 @@ class TrainerThread(ThreadBase):
         self.ThreadSleep()
 
     def _ProcessesBatches_(self, total_count) -> None:
-        """
-        Processes batches of emails for training and moves them to the destination folder.
-
-        Args:
-            total_count (int): The total number of emails to process.
-        """
         for start, _end_ in split_batches(total_count, self.batch_size):
             if self.stop_event.is_set():
                 break
@@ -204,55 +173,33 @@ class TrainerThread(ThreadBase):
             logging.info(f"Processing batch: {start + 1} to {_end_} out of {total_count}")
 
             email_batch = []
-            while True:
-                fetched_emails = list(self.email_db.fetch_mail_from_queue(self.name, self.batch_size))
+            x_gm_msgids = list(self.email_db.fetch_mail_from_queue(self.name, total_count))
 
-                if not fetched_emails:  # If no emails are fetched, we're done
-                    logging.debug("No more emails in the queue to process.")
+            if not x_gm_msgids:
+                logging.debug("No more emails in the queue to process.")
+                break
+
+            start_time = time.time()
+
+            # Use the fetch_batch() method to retrieve emails in bulk
+            for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
+                if self.stop_event.is_set():
                     break
+                email_batch.append(email)
 
-                start_time = time.time()
-
-                for email_id in fetched_emails:
-                    if self.stop_event.is_set():
-                        break
-                    try:
-                        email = self.post_office.fetch_single_email(email_id)
-
-                        # Validate fetched email
-                        if not email or not hasattr(email, "X_GM_MSGID"):
-                            logging.debug(f"Invalid or incomplete email fetched for ID {email_id}. Skipping.")
-                            continue
-                        email_batch.append(email)
-
-                        # Process a full batch
-                        if len(email_batch) >= self.batch_size:
-                            logging.debug("Batch is full. Proceeding with processing.")
-                            self.process_batch(email_batch)
-                            email_batch = []  # Reset the batch
-                            logging.info(f"Processed {self.batch_size} emails in the batch.")
-
-                    except Exception as e:
-                        logging.error(f"Failed to fetch email with X-GM-MSGID '{email_id}': {e}", exc_info=True)
-                        continue
-
-                if len(fetched_emails) < self.batch_size:  # If last batch, process it
-                    logging.debug("Last batch detected. Processing remaining emails.")
-                    break
-
-                log_progress(len(email_batch), len(fetched_emails), start_time)
+                if len(email_batch) >= self.batch_size:
+                    logging.debug("Batch is full. Proceeding with processing.")
+                    self.process_batch(email_batch)
+                    email_batch = []  # Reset the batch
+                    logging.info(f"Processed {self.batch_size} emails in the batch.")
 
             if email_batch:  # Process remaining emails
                 logging.debug("Processing remaining emails in the final batch.")
                 self.process_batch(email_batch)
 
-    def process_batch(self, email_batch: Email) -> None:
-        """
-        Processes a batch of emails for training and moving them to the destination folder.
+            log_progress(len(email_batch), len(x_gm_msgids), start_time)
 
-        Args:
-            email_batch (list): List of email objects in the batch.
-        """
+    def process_batch(self, email_batch: list[Email]) -> None:
         try:
             with self.rlock:  # Ensure thread-safe model access
                 logging.info(f"Training on {len(email_batch)} '{self.src}' emails.")
@@ -280,17 +227,9 @@ class TrainerThread(ThreadBase):
         start_time = time.time()
         for email in email_batch:
             try:
-                # Move email to destination folder
                 self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
-
-                # Add email hash and log email processing
                 self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
                 self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.src, self.dst, "trained")
-
-                # Add to trained message IDs list
-                trained_msg_ids.append(email.X_GM_MSGID)
-
-                # Update database for processed emails
                 self.email_db.set_trained_flag([email.X_GM_MSGID])
                 success = self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
 
