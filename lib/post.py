@@ -34,6 +34,7 @@ Functions:
 """
 import logging
 import imaplib
+import os
 import time
 import email
 import threading
@@ -659,6 +660,7 @@ class PostOffice():
         Args:
             thread_marker (str): The marker to identify the thread in the mail queue.
         """
+        # TODO refactor into a generator that grabs X-GM-MSGIDs in batches
         try:
             # Perform an IMAP search for all emails
             self.check_imap_state()
@@ -752,7 +754,68 @@ class PostOffice():
             logging.error(f"Error ensuring IMAP state: {e}", exc_info=True)
             raise
 
+    def save(self, path: str):
+        """
+        Save all emails from the specified mailbox to the local file system as .eml files.
 
+        Args:
+            path (str): The path where the emails will be saved.
+        """
+        try:
+            # Ensure the save path exists
+            if not os.path.exists(path):
+                os.makedirs(path)
+
+            self.connect()
+            self.select_box(readonly=True)
+            if status != "OK":
+                raise Exception(f"Failed to select mailbox: {self.mailbox}")
+
+            # Fetch all email IDs in the mailbox
+            logging.info(f"Fetching email IDs from mailbox: {self.mailbox}")
+            status, email_ids = self.srv.search(None, "ALL")
+            if status != "OK":
+                raise Exception("Failed to fetch email IDs.")
+
+            email_ids = email_ids[0].split()
+            logging.info(f"Found {len(email_ids)} emails in mailbox '{self.mailbox}'.")
+
+            # Fetch and save each email
+            for idx, email_id in enumerate(email_ids, start=1):
+                if self._StopEvent.is_set():
+                    logging.info("Stop signal received. Halting the save operation.")
+                    break
+
+                # Fetch the email by ID
+                status, data = self.srv.fetch(email_id, "(RFC822)")
+                if status != "OK":
+                    logging.warning(f"Failed to fetch email ID {email_id}. Skipping.")
+                    continue
+
+                # Parse the email content
+                raw_email = data[0][1]
+                msg = email.message_from_bytes(raw_email)
+
+                # Generate a filename based on the subject or email ID
+                subject = msg.get("Subject", "No_Subject").replace("/", "_").replace("\\", "_")
+                filename = f"{idx}_{subject}.eml"
+
+                # Save the email locally
+                email_path = os.path.join(path, filename)
+                with open(email_path, "wb") as f:
+                    f.write(raw_email)
+                logging.info(f"Saved email {idx}: {email_path}")
+
+                # Optional: You could also store metadata like the email ID in a database here if needed
+
+            logging.info(f"Finished saving {len(email_ids)} emails from '{self.mailbox}' to {path}.")
+
+        except Exception as e:
+            logging.error(f"An error occurred during the email save operation: {e}", exc_info=True)
+
+        finally:
+            self.close()
+            self.logout()
 
 class EmailHasher:
 

@@ -309,7 +309,9 @@ class ClassificationThread(ThreadBase):
         while not self.stop_event.is_set():
             # Wait for sync_event to ensure training threads have completed
             self.ThreadSleep()
+            
             self.mail_net.load_model()
+            self.email_db.check_and_reconnect()
 
             self.post_office.connect()
             self.post_office.select_box(readonly=False)
