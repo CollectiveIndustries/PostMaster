@@ -342,11 +342,11 @@ class PostOffice():
         total_emails = len(x_gm_msgids)
         logging.info(f"Fetching {total_emails} emails in chunks of {chunk_size}.")
         start_time = time.time()
-    
+
         for chunk_start in range(0, total_emails, chunk_size):
             chunk = x_gm_msgids[chunk_start:chunk_start + chunk_size]
             all_uids = []
-    
+
             # Search for each X-GM-MSGID and collect UIDs
             for msg_id in chunk:
                 try:
@@ -356,25 +356,25 @@ class PostOffice():
                         all_uids.extend(search_data[0].split())
                 except Exception as e:
                     logging.error(f"Error searching for {msg_id}: {e}")
-    
+
             # Fetch emails in bulk if UIDs were found
             if all_uids:
                 try:
-                    result, fetch_data = self.srv.fetch(",".join(all_uids), "(RFC822)")
+                    strings = ','.join([str(uid, 'utf-8') for uid in all_uids])
+                    result, fetch_data = self.srv.fetch(strings, "(BODY[HEADER.FIELDS (X-GM-MSGID Subject From To)] BODY[TEXT])")
                     if result == "OK" and fetch_data:
                         for raw_data in fetch_data:
                             if self._StopEvent.is_set():
                                 logging.info("Stop signal received.")
                                 return
                             if isinstance(raw_data, tuple):
-                                email_obj = Email(raw_data[1])
-                                email_obj.X_GM_MSGID = chunk[0]  # Assign the first X-GM-MSGID in chunk
+                                email_obj = Email(raw_data)
                                 yield email_obj
                             else:
                                 logging.error(f"Invalid data format: {type(raw_data)}")
                 except Exception as e:
-                    logging.error(f"Error during bulk fetch: {e}")
-    
+                    logging.error(f"Bulk fetch: {e}")
+
             # Log progress
             log_progress(chunk_start + len(chunk), total_emails, start_time)
 
