@@ -119,12 +119,12 @@ class MailNet:
             with open(tokenizer_path, "rb") as f:
                 self.tokenizer = pickle.load(f)
             self.vocab_size = len(self.tokenizer.word_index) + 1
-            logging.info(f"Tokenizer loaded from '{tokenizer_path}'")
+            logging.info(f"Tokenizer loaded from '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}")
         else:
             self.tokenizer = Tokenizer(num_words=self.max_vocab_size, oov_token="<OOV>")
             with open(tokenizer_path, "wb") as f:
                 pickle.dump(self.tokenizer, f)
-            logging.info(f"New tokenizer created and saved to '{tokenizer_path}'")
+            logging.info(f"New tokenizer created and saved to '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}")
 
     def _create_model(self) -> Sequential:
         """Define and return a new TensorFlow model."""
