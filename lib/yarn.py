@@ -188,7 +188,6 @@ class TrainerThread(ThreadBase):
             index = 0
 
             # Fetch emails in bulk
-            # BUG: this method is failing to fetch emails in bulk with an imaplib error
             for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
                 if self.stop_event.is_set():
                     break
@@ -258,6 +257,7 @@ class TrainerThread(ThreadBase):
         else:
             logging.warning(f"No emails were successfully processed in this batch.")
 
+# TODO rebuild following class with the updated PostOffice
 class ClassificationThread(ThreadBase):
     def __init__(self, name: str, mailbox: str, stop_event: threading.Event, barrier: threading.Barrier, batch_size: int):
         """

@@ -44,8 +44,6 @@ import socket
 from typing import Generator
 from imaplib import IMAP4
 from .database import EmailDatabase
-from email.header import decode_header
-from .utils import log_progress
 from .config import config
 
 def match_uid(email_uid: str, fetch_response: bytes) -> bool:
@@ -177,6 +175,8 @@ class PostOffice():
         Parameters:
         - retry_delay (int): Delay in seconds between retries.
         """
+        retry_attempts = 0
+        max_rety_delay = 300
         while not self._StopEvent.is_set():
             try:
                 logging.debug(f"Attempting to connect to IMAP server {self.url}:{self.port}.")
@@ -195,8 +195,10 @@ class PostOffice():
                 self.srv = None
 
             # Wait before retrying
+            retry_attempts += 1
+            current_delay = min(retry_delay * retry_attempts, max_rety_delay)
             logging.info(f"Retrying in {retry_delay} seconds...")
-            time.sleep(retry_delay)
+            time.sleep(current_delay)
 
         # If we exit due to stop_event being set
         logging.info("Stop event set. Exiting connection attempts.")
@@ -419,7 +421,7 @@ class PostOffice():
         self.database.mark_email_as_failed(x_gm_msgid)
         return None
 
-    def move(self, destination_folder: str, x_gm_msgid: str):
+    def move(self, destination_folder: str, x_gm_msgid: str): # TODO: refactor to move in bulk
         """
         Args:
             destination_folder (str): The name of the destination folder where the email should be moved.
@@ -778,6 +780,30 @@ class PostOffice():
         finally:
             self.close()
             self.logout()
+
+    def _socket_alive(self) -> bool:
+        """
+        Check if the socket connection to the IMAP server is alive.
+
+        Returns:
+        - bool: True if the socket is alive, False otherwise.
+        """
+        try:
+            if self.srv is None:
+                logging.warning("IMAP server connection is not initialized.")
+                return False
+        
+            # Send a NOOP command to verify the connection
+            status, _ = self.srv.noop()
+            if status == "OK":
+                logging.info("Socket is alive.")
+                return True
+            else:
+                logging.warning("Socket is not responding.")
+                return False
+        except (socket.error, imaplib.IMAP4.error) as e:
+            logging.error(f"Socket error detected: {e}")
+            return False
 
 class EmailHasher:
 
