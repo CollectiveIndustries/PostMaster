@@ -293,12 +293,13 @@ class PostOffice():
         total_emails = len(x_gm_msgids)
         logging.info(f"Fetching {total_emails} emails in chunks of {chunk_size}.")
         start_time = time.time()
-    
+
         for chunk_start in range(0, total_emails, chunk_size):
             chunk = x_gm_msgids[chunk_start:chunk_start + chunk_size]
             uid_map = {}
 
             # Step 1: Search for UIDs using X-GM-MSGID
+            logging.info(f"Searching for UIDs for {len(chunk)} X-GM-MSGIDs.")
             for msg_id in chunk:
                 try:
                     self.reconnect()  # Ensure IMAP connection is alive
@@ -312,6 +313,7 @@ class PostOffice():
             logging.info(f"Fetched {len(uid_map)} UIDs for current chunk.")
 
             # Step 2: Fetch email data using UIDs
+            logging.info(f"Fetching email data for {len(uid_map)} UIDs.")
             if uid_map:
                 try:
                     uids_to_fetch = ','.join(uid_map.keys())

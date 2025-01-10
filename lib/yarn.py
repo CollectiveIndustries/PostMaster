@@ -185,6 +185,7 @@ class TrainerThread(ThreadBase):
                 break
 
             start_time = time.time()
+            index = 0
 
             # Fetch emails in bulk
             # BUG: this method is failing to fetch emails in bulk with an imaplib error
@@ -192,6 +193,10 @@ class TrainerThread(ThreadBase):
                 if self.stop_event.is_set():
                     break
                 email_batch.append(email)
+
+                if index % 100 == 0:
+                    log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Fetching emails")
+                index += 1
 
                 if len(email_batch) >= self.batch_size:
                     logging.info(f"Full batch fetched. Processing {len(email_batch)} emails.")
