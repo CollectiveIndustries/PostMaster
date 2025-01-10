@@ -143,13 +143,13 @@ class Email:
     def text(self):
         data = []
         if config.USE_SUBJECT:
-            data.append(self.subject)
+            data.append(self.subject if self.subject is not None else "None")
         if config.USE_SENDER:
-            data.append(self.sender)
+            data.append(self.sender if self.sender is not None else "None")
         if config.USE_RECIPIENT:
-            data.append(self.recipient)
+            data.append(self.recipient if self.recipient is not None else "None")
         if config.USE_BODY:
-            data.append(self.payload)
+            data.append(self.payload if self.payload is not None else "None")
         return " ".join(data)        
 
 class PostOffice():
@@ -421,7 +421,7 @@ class PostOffice():
         self.database.mark_email_as_failed(x_gm_msgid)
         return None
 
-    def move(self, destination_folder: str, x_gm_msgid: str): # TODO: refactor to move in bulk
+    def move(self, uids: list[bytes], destination_folder: str): # TODO: refactor to move in bulk
         """
         Args:
             destination_folder (str): The name of the destination folder where the email should be moved.
@@ -434,37 +434,25 @@ class PostOffice():
         Raises:
             Exception: If an error occurs during the process of moving the email.
         """
-        logging.debug(f"Moving email with X-GM-MSGID '{x_gm_msgid}' from '{self.mailbox}' to '{destination_folder}'.")
+        logging.debug(f"Moving '{len(uids)}' emails from '{self.mailbox}' to '{destination_folder}'.")
         self.check_imap_state(readonly=False)
 
+        uid_str = ",".join(b.decode() for b in uids)
         try:
-            # Search for the email in the source folder by X-GM-MSGID
-            result, data = self.srv.uid('SEARCH', None, f'X-GM-MSGID {x_gm_msgid}')
-            if result != "OK" or not data or not data[0]:
-                logging.debug(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
-                return
+            # Write a check for cap support
+            status, _ = self.srv.uid('COPY', uid_str, destination_folder)
+            if status != "OK":
+                raise Exception(f"Failed to copy emails to '{destination_folder}'.")
+            logging.debug(f"Emails moved to '{destination_folder}' successfully.")
 
-            # Extract the email ID
-            email_id = data[0].split()[0]
-            logging.debug(f"Found email ID '{email_id}' for X-GM-MSGID '{x_gm_msgid}'.")
+            status, _ = self.srv.uid("STORE", uid_str, "+FLAGS", "(\\Deleted)")
+            if status != "OK":
+                raise Exception("Failed to mark emails as deleted.")
+            
+            status, _ = self.srv.expunge()
+            if status != "OK":
+                raise Exception("Failed to expunge emails.")
 
-            # Use the email ID to move the email
-            caplist = self.capabilities[0].split()
-            if b'UIDPLUS' in caplist:
-                logging.debug(f"Moving email UID {email_id} to {destination_folder} with UIDPLUS support.")
-                result = self.srv.uid('COPY', email_id.decode(), destination_folder)
-            else:
-                logging.debug(f"Moving email UID {email_id} to {destination_folder} without UIDPLUS support.")
-                result = self.srv.copy(email_id.decode(), destination_folder)
-
-            if result[0] == "OK":
-                self.srv.store(email_id, '+FLAGS', '\\Deleted')
-                self.srv.expunge()
-                logging.debug(f"Email with X-GM-MSGID '{x_gm_msgid}' moved successfully.")
-            else:
-                logging.error(f"Failed to move email with X-GM-MSGID '{x_gm_msgid}'.")
-        except Exception as e:
-            logging.error(f"Error while moving email with X-GM-MSGID '{x_gm_msgid}': {e}", exc_info=True)
         finally:
             self.srv.close()
 
