@@ -226,21 +226,27 @@ class TrainerThread(ThreadBase):
         # Move emails and update database
         trained_msg_ids = []
         logging.info(f"Moving processed emails to '{self.dst}' and updating the database.")
+        start_time = time.time()
+        index = 0
         for email in email_batch:
             try:
-                self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.X_GM_MSGID)
-                self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, self.class_id)
-                self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.src, self.dst, "trained")
-                self.email_db.set_trained_flag([email.X_GM_MSGID])
-                success = self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
+                self.post_office.move(destination_folder=self.dst, x_gm_msgid=email.msgid)
+                self.email_db.add_email_hash(email.hash, email.msgid, self.class_id)
+                self.email_db.log_email_processing(email.msgid, email.hash, self.src, self.dst, "trained")
+                self.email_db.set_trained_flag([email.msgid])
+                success = self.email_db.pop_from_que(email.msgid, self.name)
 
                 if not success:
-                    logging.error(f"Failed to pop email with X-GM-MSGID '{email.X_GM_MSGID}' from queue.")
+                    logging.error(f"Failed to pop email with X-GM-MSGID '{email.msgid}' from queue.")
 
-                trained_msg_ids.append(email.X_GM_MSGID)
+                trained_msg_ids.append(email.msgid)
+
+                if index % 100 == 0:
+                    log_progress(len(trained_msg_ids), len(email_batch), start_time, stage="Moving emails")
+                index += 1
 
             except Exception as e:
-                logging.error(f"Failed to process email with X-GM-MSGID '{email.X_GM_MSGID}': {e}", exc_info=True)
+                logging.error(f"Failed to process email with X-GM-MSGID '{email.msgid}': {e}", exc_info=True)
 
         if trained_msg_ids:
             logging.info(f"Successfully processed {len(trained_msg_ids)} emails in this batch.")

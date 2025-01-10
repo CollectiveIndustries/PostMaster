@@ -48,6 +48,27 @@ from email.header import decode_header
 from .utils import log_progress
 from .config import config
 
+def match_uid(email_uid: str, fetch_response: bytes) -> bool:
+    """
+    Compare the email UID against the UID in the fetch response.
+    
+    Args:
+        email_uid (str): The UID of the email from the first fetch.
+        fetch_response (bytes): The raw fetch response containing X-GM-MSGID and UID.
+
+    Returns:
+        bool: True if the UIDs match, False otherwise.
+    """
+    # Decode the fetch response and extract the UID using a regex
+    decoded_response = fetch_response.decode()
+    match = re.search(r'UID (\d+)', decoded_response)
+    
+    if match:
+        fetched_uid = match.group(1)  # Extract UID from the response
+        return email_uid == fetched_uid  # Compare with email.uid
+    else:
+        return False
+
 class Email:
     def __init__(self, raw_data: list):
         self.msgid = None
@@ -55,8 +76,10 @@ class Email:
         self.sender = None
         self.recipient = None
         self.payload = None
+        self.uid = None
 
         self._parse(raw_data)
+        self.hash = EmailHasher.generate_sha256sum(self.text())
 
     def _parse(self, raw_data: list):
         """
@@ -90,11 +113,34 @@ class Email:
                 elif 'BODY[TEXT]' in header:
                     self.payload = content
 
+                    uid_match = re.search(r'UID (\d+)', header)
+                    size_match = re.search(r'\{(\d+)\}', header)
+
+                    if uid_match:
+                        self.uid = uid_match.group(1)
+                    if size_match:
+                        self.size = size_match.group(1)
+
     def __repr__(self):
         return (
             f"ParsedEmail(msgid={self.msgid}, subject={self.subject}, sender={self.sender}, "
             f"recipient={self.recipient}, payload={len(self.payload) if self.payload else 0} chars)"
         )
+
+    @staticmethod
+    def extract_uid_and_msgid(data: bytes) -> tuple:
+        # Decode bytes to string
+        decoded_data = data.decode()
+
+        # Use regular expression to extract UID and X-GM-MSGID values
+        match = re.search(r'X-GM-MSGID (\d+) UID (\d+)', decoded_data)
+
+        if match:
+            # Return a tuple of (uid, msgid)
+            return match.group(2), match.group(1)
+        else:
+            # If the pattern is not found, return None or handle the error accordingly
+            return None
 
     def text(self):
         data = []
@@ -256,7 +302,7 @@ class PostOffice():
             for msg_id in chunk:
                 try:
                     self.reconnect()  # Ensure IMAP connection is alive
-                    status, search_data = self.srv.search(None, f'X-GM-MSGID {msg_id}')
+                    status, search_data = self.srv.uid('SEARCH', None, f'X-GM-MSGID {msg_id}')
                     if status == "OK" and search_data and search_data[0]:
                         uid = search_data[0].strip()
                         uid_map[uid.decode()] = msg_id
@@ -264,18 +310,31 @@ class PostOffice():
                     logging.error(f"Error searching for X-GM-MSGID {msg_id}: {e}")
 
             logging.info(f"Fetched {len(uid_map)} UIDs for current chunk.")
-    
+
             # Step 2: Fetch email data using UIDs
             if uid_map:
                 try:
                     uids_to_fetch = ','.join(uid_map.keys())
-                    result, fetch_data = self.srv.fetch(uids_to_fetch, "(BODY[HEADER.FIELDS (Subject From To)] BODY[TEXT])")
-                    if result == "OK" and fetch_data:
-                        # Process the fetched email data
+
+                    # Fetch email data (headers and body)
+                    result, fetch_data = self.srv.uid( 'FETCH', uids_to_fetch, "(BODY[HEADER.FIELDS (Subject From To)] BODY[TEXT])")
+
+                    # Fetch X-GM-MSGID data
+                    msgid_status, msgid_fetch_data = self.srv.uid( 'FETCH', uids_to_fetch, "(X-GM-MSGID)")
+
+                    if result == "OK" and fetch_data and msgid_status == "OK" and msgid_fetch_data:
+
                         for i in range(0, len(fetch_data), 3):  # Step by 3 to skip every third element
                             email_data = fetch_data[i:i + 2]  # Take the first two elements
                             if len(email_data) == 2:  # Ensure there are two elements to process
-                                yield Email(email_data)
+                                email_obj = Email(email_data)  # Parse the email
+                                for msgid_data in msgid_fetch_data:
+                                    uid = re.search(r'UID (\d+)', msgid_data.decode()).group(1)
+                                    msgid = re.search(r'X-GM-MSGID (\d+)', msgid_data.decode()).group(1)
+                                    if email_obj.uid == uid:
+                                        email_obj.msgid = msgid
+                                        break
+                            yield email_obj
                 except Exception as e:
                     logging.error(f"Error fetching email data for UIDs: {e}")
 
@@ -299,7 +358,7 @@ class PostOffice():
         while True:
             try:
                 # Perform the search
-                status, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+                status, data = self.srv.uid('SEARCH', None, f'X-GM-MSGID {x_gm_msgid}')
                 if status == "OK" and data:
                     if data[0] == b'':
                         logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
@@ -337,7 +396,7 @@ class PostOffice():
                     continue  # Skip to the next retry if the email is not found
 
                 # Fetch the email using its UID
-                result, raw_imap_msg_data = self.srv.fetch(uid[0].split()[0], "(RFC822)")
+                result, raw_imap_msg_data = self.srv.uid('FETCH', uid[0].split()[0], "(RFC822)")
                 if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
                     logging.debug(f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}.")
 
@@ -372,11 +431,11 @@ class PostOffice():
             Exception: If an error occurs during the process of moving the email.
         """
         logging.debug(f"Moving email with X-GM-MSGID '{x_gm_msgid}' from '{self.mailbox}' to '{destination_folder}'.")
-        self.select_box(readonly=False)
+        self.check_imap_state(readonly=False)
 
         try:
             # Search for the email in the source folder by X-GM-MSGID
-            result, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+            result, data = self.srv.uid('SEARCH', None, f'X-GM-MSGID {x_gm_msgid}')
             if result != "OK" or not data or not data[0]:
                 logging.debug(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
                 return
@@ -386,7 +445,8 @@ class PostOffice():
             logging.debug(f"Found email ID '{email_id}' for X-GM-MSGID '{x_gm_msgid}'.")
 
             # Use the email ID to move the email
-            if self.capabilities and b"UIDPLUS" in self.capabilities:
+            caplist = self.capabilities[0].split()
+            if b'UIDPLUS' in caplist:
                 logging.debug(f"Moving email UID {email_id} to {destination_folder} with UIDPLUS support.")
                 result = self.srv.uid('COPY', email_id.decode(), destination_folder)
             else:
@@ -422,7 +482,7 @@ class PostOffice():
             email_ids = []
             for x_gm_msgid in x_gm_msgids:
                 # Search for the email ID in the source folder by X-GM-MSGID
-                result, data = self.srv.search(None, f'X-GM-MSGID {x_gm_msgid}')
+                result, data = self.srv.uid('SEARCH', None, f'X-GM-MSGID {x_gm_msgid}')
                 if result == "OK" and data and data[0]:
                     email_ids.append(data[0].split()[0])
                     logging.debug(f"Found email ID '{data[0].split()[0]}' for X-GM-MSGID '{x_gm_msgid}'.")
@@ -559,7 +619,7 @@ class PostOffice():
         try:
             # Perform an IMAP search for all emails
             self.check_imap_state()
-            result, data = self.srv.search(None, "ALL")
+            result, data = self.srv.uid('SEARCH', None, "ALL")
 
             if result != "OK":
                 logging.error("Failed to fetch email IDs.")
@@ -581,7 +641,7 @@ class PostOffice():
                 batch_ids_str = [id.decode() if isinstance(id, bytes) else str(id) for id in batch_ids]
 
                 # Fetch the X-GM-MSGID for the batch
-                result, msg_data = self.srv.fetch(",".join(batch_ids_str), "(X-GM-MSGID)")
+                result, msg_data = self.srv.uid('FETCH', ",".join(batch_ids_str), "(X-GM-MSGID)")
 
 
                 if result == "OK" and msg_data:
@@ -673,7 +733,7 @@ class PostOffice():
 
             # Fetch all email IDs in the mailbox
             logging.info(f"Fetching email IDs from mailbox: {self.mailbox}")
-            status, email_ids = self.srv.search(None, "ALL")
+            status, email_ids = self.srv.uid('SEARCH', None, "ALL")
             if status != "OK":
                 raise Exception("Failed to fetch email IDs.")
 
@@ -687,7 +747,7 @@ class PostOffice():
                     break
 
                 # Fetch the email by ID
-                status, data = self.srv.fetch(email_id, "(RFC822)")
+                status, data = self.srv.uid('FETCH', email_id, "(RFC822)")
                 if status != "OK":
                     logging.warning(f"Failed to fetch email ID {email_id}. Skipping.")
                     continue
@@ -734,7 +794,7 @@ class EmailHasher:
             ValueError: If the email content is not of type bytes.
         """
         if not isinstance(email_content, bytes):
-            raise ValueError("email_content must be of type bytes.")
+            email_content = email_content.encode('utf-8')
         
         sha256_hash = hashlib.sha256(email_content).hexdigest()
         return sha256_hash
