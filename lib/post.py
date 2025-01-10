@@ -49,122 +49,52 @@ from .utils import log_progress
 from .config import config
 
 class Email:
-    """
-    A class to represent an email message.
-    Attributes:
-        subject (str): The subject of the email.
-        sender (str): The sender of the email.
-        recipient (str): The recipient of the email.
-        payload (str): The body of the email.
-        classification (None): Placeholder for email classification.
-        X_GM_MSGID (str | None): The X-GM-MSGID of the email.
-        msg_sequence (str | None): The message sequence number.
-        email_size (str | None): The size of the email.
-        hash (str): The SHA-256 hash of the email content.
-    Methods:
-        __init__(raw_data: tuple):
-            Initializes the Email object with raw data from an IMAP fetch command.
-        extract_message_parts(raw_msg_data: bytes) -> tuple[str | None, str | None, str | None]:
-        _get_subject(msg):
-            Extracts the subject from the email message.
-        _get_sender(msg):
-            Extracts the sender from the email message.
-        _get_recipient(msg):
-            Extracts the recipient from the email message.
-        _get_payload(msg):
-            Extracts the email payload (body of the email).
-        __repr__():
-            Returns a string representation of the Email object.
-        _decode_email_header(header_value) -> str:
-            Decodes an email header to a readable string.
-    """
-    def __init__(self, raw_data: tuple):
-        # msg_data is the result of an IMAP fetch command
-        if not raw_data or not isinstance(raw_data, tuple):
-            raise ValueError("Invalid raw_data format. Expected a tuple.")
-        raw_email = raw_data[1]
-        msg = email.message_from_bytes(raw_email)
+    def __init__(self, raw_data: list):
+        self.msgid = None
+        self.subject = None
+        self.sender = None
+        self.recipient = None
+        self.payload = None
 
-        self.subject = self._get_subject(msg)
-        self.sender = self._get_sender(msg)
-        self.recipient = self._get_recipient(msg)
-        self.payload = self._get_payload(msg)
-        self.classification = None
-        self.X_GM_MSGID, self.msg_sequence, self.email_size = self.extract_message_parts(raw_data[0])
-        self.hash = EmailHasher.generate_sha256sum(raw_data[1])
+        self._parse(raw_data)
 
-    def extract_message_parts(self, raw_msg_data: bytes) -> tuple[str | None, str | None, str | None]:
+    def _parse(self, raw_data: list):
         """
-        Extracts X-GM-MSGID, message sequence number, and email size from raw message data using regular expressions.
+        Parses the raw IMAP fetch response and populates the class attributes.
+
         Args:
-            raw_msg_data (bytes): The raw message data from which to extract the parts.
-        Returns:
-            tuple: A tuple containing the X-GM-MSGID (str), message sequence number (str), and email size (str).
-               If any part is not found, its value in the tuple will be None.
-        Raises:
-            None: This method handles exceptions internally and logs errors.
+            raw_data (list): List of tuples containing the IMAP fetch response.
         """
-        # Define regex patterns for extracting the parts
-        msgid_pattern = rb"X-GM-MSGID (\d+)"
-        sequence_pattern = rb"^(\d+)"
-        size_pattern = rb"{(\d+)}"
+        for item in raw_data:
+            if isinstance(item, tuple):
+                header = item[0].decode('utf-8', errors='ignore')
+                content = item[1].decode('utf-8', errors='ignore')
 
-        msgid = None
-        msg_sequence = None
-        email_size = None
+                if 'X-GM-MSGID' in header:
+                    msgid_match = re.search(r'X-GM-MSGID\s+(\d+)', header)
+                    if msgid_match:
+                        self.msgid = msgid_match.group(1)
 
-        try:
-            # Search for the X-GM-MSGID
-            msgid_match = re.search(msgid_pattern, raw_msg_data)
-            if msgid_match:
-                msgid = msgid_match.group(1).decode('utf-8')
+                elif 'HEADER.FIELDS' in header:
+                    subject_match = re.search(r'Subject:\s*(.+)', content)
+                    from_match = re.search(r'From:\s*(.+)', content)
+                    to_match = re.search(r'To:\s*(.+)', content)
 
-            # Search for the message sequence number
-            sequence_match = re.search(sequence_pattern, raw_msg_data)
-            if sequence_match:
-                msg_sequence = sequence_match.group(1).decode('utf-8')
+                    if subject_match:
+                        self.subject = subject_match.group(1)
+                    if from_match:
+                        self.sender = from_match.group(1)
+                    if to_match:
+                        self.recipient = to_match.group(1)
 
-            # Search for the email size
-            size_match = re.search(size_pattern, raw_msg_data)
-            if size_match:
-                email_size = size_match.group(1).decode('utf-8')
-
-            logging.debug(f"Extracted X-GM-MSGID: {msgid}, Sequence: {msg_sequence}, Size: {email_size}")
-        except Exception as e:
-            logging.error(f"Error extracting message parts: {e}")
-
-        return msgid, msg_sequence, email_size
-
-    def _get_subject(self, msg):
-        # Extract subject from the message
-        return self._decode_email_header(msg.get("Subject"))
-
-    def _get_sender(self, msg):
-        return self._decode_email_header(msg.get("From"))
-
-    def _get_recipient(self, msg):
-        return self._decode_email_header(msg.get("To"))
-
-    def _get_payload(self, msg):
-        """
-        Extract the email payload (body of the email).
-        """
-        if msg.is_multipart():
-            # Combine all text/plain parts
-            payload = []
-            for part in msg.walk():
-                if part.get_content_type() == "text/plain":
-                    payload.append(
-                        part.get_payload(decode=True).decode(errors="ignore")
-                    )
-            return "\n".join(payload)
-        else:
-            # Single-part message
-            payload = msg.get_payload(decode=True)
-            return payload.decode("utf-8", errors="ignore") if payload else ""
+                elif 'BODY[TEXT]' in header:
+                    self.payload = content
 
     def __repr__(self):
-        return f"Email(subject={self.subject}, sender={self.sender}, recipient={self.recipient}, X_GM_MSGID={self.X_GM_MSGID})"
+        return (
+            f"ParsedEmail(msgid={self.msgid}, subject={self.subject}, sender={self.sender}, "
+            f"recipient={self.recipient}, payload={len(self.payload) if self.payload else 0} chars)"
+        )
 
     def text(self):
         data = []
@@ -176,32 +106,7 @@ class Email:
             data.append(self.recipient)
         if config.USE_BODY:
             data.append(self.payload)
-        return " ".join(data)
-
-    def _decode_email_header(self, header_value) -> str:
-        if not header_value:
-            return "(Unknown)"
-
-        decoded_parts = decode_header(header_value)
-        header = ""
-
-        for part, encoding in decoded_parts:
-            if isinstance(part, bytes):
-                # Handle the 'unknown-8bit' encoding case
-                if encoding == 'unknown-8bit':
-                    encoding = 'utf-8'  # Fall back to 'utf-8' for 'unknown-8bit'
-
-                # Default to 'utf-8' if encoding is None
-                encoding = encoding or 'utf-8'
-
-                try:
-                    header += part.decode(encoding, errors='ignore')
-                except (LookupError, UnicodeDecodeError) as e:
-                    logging.error(f"Error decoding part with encoding {encoding}: {e}")
-                    header += part.decode('utf-8', errors='ignore')  # Fallback to utf-8
-            else:
-                header += part
-        return header
+        return " ".join(data)        
 
 class PostOffice():
     def __init__(self, event: threading.Event, mailbox: str):
@@ -328,55 +233,53 @@ class PostOffice():
         except IMAP4.error as e:
             logging.error(f"IMAP connection error selecting mailbox: {e}")
 
-    def fetch_batch(self, x_gm_msgids: list[int], chunk_size: int = 100) -> Generator[Email, None, None]:
+    def fetch_batch(self, x_gm_msgids: list[int], chunk_size: int = 100) -> Generator['Email', None, None]:
         """
         Fetch emails in bulk based on provided X-GM-MSGID list, with chunking for large lists.
-    
+
         Args:
             x_gm_msgids (list[int]): List of X-GM-MSGID values to fetch emails for.
             chunk_size (int): Maximum number of X-GM-MSGID values to process in one fetch.
-    
+
         Yields:
             Email: An Email object containing the fetched email data.
         """
         total_emails = len(x_gm_msgids)
         logging.info(f"Fetching {total_emails} emails in chunks of {chunk_size}.")
         start_time = time.time()
-
+    
         for chunk_start in range(0, total_emails, chunk_size):
             chunk = x_gm_msgids[chunk_start:chunk_start + chunk_size]
-            all_uids = []
+            uid_map = {}
 
-            # Search for each X-GM-MSGID and collect UIDs
+            # Step 1: Search for UIDs using X-GM-MSGID
             for msg_id in chunk:
                 try:
                     self.reconnect()  # Ensure IMAP connection is alive
                     status, search_data = self.srv.search(None, f'X-GM-MSGID {msg_id}')
                     if status == "OK" and search_data and search_data[0]:
-                        all_uids.extend(search_data[0].split())
+                        uid = search_data[0].strip()
+                        uid_map[uid.decode()] = msg_id
                 except Exception as e:
-                    logging.error(f"Error searching for {msg_id}: {e}")
+                    logging.error(f"Error searching for X-GM-MSGID {msg_id}: {e}")
 
-            # Fetch emails in bulk if UIDs were found
-            if all_uids:
+            logging.info(f"Fetched {len(uid_map)} UIDs for current chunk.")
+    
+            # Step 2: Fetch email data using UIDs
+            if uid_map:
                 try:
-                    strings = ','.join([str(uid, 'utf-8') for uid in all_uids])
-                    result, fetch_data = self.srv.fetch(strings, "(BODY[HEADER.FIELDS (X-GM-MSGID Subject From To)] BODY[TEXT])")
+                    uids_to_fetch = ','.join(uid_map.keys())
+                    result, fetch_data = self.srv.fetch(uids_to_fetch, "(BODY[HEADER.FIELDS (Subject From To)] BODY[TEXT])")
                     if result == "OK" and fetch_data:
-                        for raw_data in fetch_data:
-                            if self._StopEvent.is_set():
-                                logging.info("Stop signal received.")
-                                return
-                            if isinstance(raw_data, tuple):
-                                email_obj = Email(raw_data)
-                                yield email_obj
-                            else:
-                                logging.error(f"Invalid data format: {type(raw_data)}")
+                        # Process the fetched email data
+                        for i in range(0, len(fetch_data), 3):  # Step by 3 to skip every third element
+                            email_data = fetch_data[i:i + 2]  # Take the first two elements
+                            if len(email_data) == 2:  # Ensure there are two elements to process
+                                yield Email(email_data)
                 except Exception as e:
-                    logging.error(f"Bulk fetch: {e}")
+                    logging.error(f"Error fetching email data for UIDs: {e}")
 
-            # Log progress
-            log_progress(chunk_start + len(chunk), total_emails, start_time)
+            logging.info(f"Chunk progress: {chunk_start + len(chunk)}/{total_emails} emails processed.")
 
     def search_with_retry(self, x_gm_msgid: int) -> str | None:
         """
