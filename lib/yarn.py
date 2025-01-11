@@ -344,6 +344,7 @@ class ClassificationThread(ThreadBase):
 
         start_time = time.time()
         index = 0
+        classication_map = self.email_db.get_mail_map()
 
         for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
             if self.stop_event.is_set():
@@ -359,7 +360,7 @@ class ClassificationThread(ThreadBase):
             if len(email_batch) >= self.batch_size:
                 logging.info(f"Processing batch of {len(email_batch)} emails.")
                 self.mail_net.classify_emails(email_batch)  # Update email objects with classifications
-                sorted_emails.update(sort_emails_by_folder(email_batch))
+                sorted_emails.update(sort_emails_by_folder(email_batch, classication_map))
                 email_batch = []  # Reset batch
 
         # Process remaining emails
