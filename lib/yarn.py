@@ -330,44 +330,40 @@ class ClassificationThread(ThreadBase):
     # 2. Process stage
     def process(self, x_gm_msgids):
         """
-        Classifies and sorts emails based on their attributes.
-
+        Collects all emails, classifies them, and sorts them based on their attributes.
+    
         Args:
             x_gm_msgids (list): List of email message IDs to process.
-
+    
         Returns:
             dict: A dictionary where keys are folder names and values are lists of email objects.
         """
         email_batch = []
         sorted_emails = {}
-
+    
         start_time = time.time()
         index = 0
         classication_map = self.email_db.get_mail_map()
-
+    
+        # Collect all emails first
         for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
             if self.stop_event.is_set():
                 break
             email_batch.append(email)
-
+    
             # Periodic progress logging
             if index % 100 == 0:
                 log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Fetching emails")
             index += 1
-
-            # Full batch ready for classification
-            if len(email_batch) >= self.batch_size:
-                logging.info(f"Processing batch of {len(email_batch)} emails.")
-                self.mail_net.classify_emails(email_batch)  # Update email objects with classifications
-                sorted_emails.update(sort_emails_by_folder(email_batch, classication_map))
-                email_batch = []  # Reset batch
-
-        # Process remaining emails
+    
+        # Once all emails are collected, classify them
         if email_batch:
-            logging.info(f"Processing the final batch of {len(email_batch)} emails.")
-            self.mail_net.classify_emails(email_batch)
-            sorted_emails.update(sort_emails_by_folder(email_batch))
-
+            logging.info(f"Classifying a total of {len(email_batch)} emails.")
+            self.mail_net.classify_emails(email_batch)  # Classify all emails at once
+    
+            # Sort emails by folder after classification
+            sorted_emails = sort_emails_by_folder(email_batch, classication_map)
+    
         return sorted_emails
 
     # 3. Post-process stage
