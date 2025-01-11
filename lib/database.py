@@ -24,71 +24,54 @@ Usage example:
         pop_from_que(msg_id: int, thread_marker: str): Removes an email from the queue after processing.
         fetch_thread_marker_count(thread_marker: str) -> int: Fetches the total count of emails for a specific thread marker.
 """
-from typing import Generator, Optional
+from typing import Generator, Optional, List, Dict
 import MySQLdb
 import logging
-
-from MySQLdb import OperationalError
 from .config import config
 
 class EmailDatabase:
     def __init__(self):
         try:
-            # Fetch values from the config.VALUE object
-            self.host = config.SQL_HOST
-            self.user = config.SQL_USER
-            self.password = config.SQL_PASSWORD
-            self.database = config.SQL_DATABASE
-            self.port = config.SQL_PORT
-
-            # Establish the connection to the database
             self.connection = MySQLdb.connect(
-                host=self.host, user=self.user, passwd=self.password, 
-                db=self.database, port=self.port
+                host=config.SQL_HOST,
+                user=config.SQL_USER,
+                passwd=config.SQL_PASSWORD,
+                db=config.SQL_DATABASE,
+                port=config.SQL_PORT,
+                cursorclass=MySQLdb.cursors.DictCursor,
             )
             self.cursor = self.connection.cursor()
             logging.info("Connected to the database successfully.")
-
         except MySQLdb.Error as e:
             logging.error(f"Error connecting to database: {e}")
             raise
 
     def check_and_reconnect(self):
-        """
-        Check if the database connection is active, and reconnect if necessary.
-        """
-        try:
-            if self.connection and self.connection.open:
-                logging.debug("Database connection is active.")
-            else:
-                logging.warning("Database connection is closed. Attempting to reconnect...")
-                self.reconnect()
-                logging.info("Reconnected to the database successfully.")
-        except OperationalError as e:
-            logging.error(f"Failed to reconnect to the database: {e}")
-            raise
+        """Ensures the database connection is active; reconnects if necessary."""
+        if not self.connection.open:
+            self.reconnect()
 
     def reconnect(self):
-        """
-        Re-establish the database connection if it becomes stale.
-        """
+        """Reconnects to the database."""
         try:
-            logging.info("Reconnecting to MySQL database...")
-            self.connection.close()
-        except Exception:
-            pass  # Ignore errors when closing
-        finally:
+            if self.connection:
+                self.connection.close()
             self.connection = MySQLdb.connect(
-                host=self.host,
-                user=self.user,
-                password=self.password,
-                database=self.database,
-                port=self.port,
+                host=config.SQL_HOST,
+                user=config.SQL_USER,
+                passwd=config.SQL_PASSWORD,
+                db=config.SQL_DATABASE,
+                port=config.SQL_PORT,
+                cursorclass=MySQLdb.cursors.DictCursor,
             )
             self.cursor = self.connection.cursor()
-            logging.info("Reconnection successful.")
+            logging.info("Reconnected to the database.")
+        except MySQLdb.Error as e:
+            logging.error(f"Failed to reconnect: {e}")
+            raise
 
     def close(self):
+        """Closes the database connection."""
         try:
             self.cursor.close()
             self.connection.close()
@@ -96,391 +79,123 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error closing database connection: {e}")
 
-    def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
-        """
-        Adds an email hash to the database.
+    def execute_query(self, query: str, params: Optional[tuple] = None) -> List[Dict]:
+        """Executes a query and returns the results."""
+        self.check_and_reconnect()
+        self.cursor.execute(query, params or ())
+        return self.cursor.fetchall()
 
-        This method inserts a new record into the email_hashes table with the provided
-        hash_id, x_gm_msgid, and classification_id. If the insertion is successful, the
-        transaction is committed. If an error occurs, the transaction is rolled back and
-        an error message is logged.
-
-        Args:
-            hash_id (str): The hash ID of the email.
-            x_gm_msgid (str): The Gmail message ID of the email.
-            classification_id (str): The classification ID of the email.
-
-        Raises:
-            MySQLdb.Error: If an error occurs during the database operation.
-        """
+    def execute_commit(self, query: str, params: Optional[tuple] = None):
+        """Executes a query that modifies the database and commits changes."""
+        self.check_and_reconnect()
         try:
-            query = """
-                INSERT IGNORE INTO email_hashes (hash_id, x_gm_msgid, classification_id)
-                VALUES (%s, %s, %s)
-            """
-            self.cursor.execute(query, (hash_id, x_gm_msgid, classification_id))
+            self.cursor.execute(query, params or ())
             self.connection.commit()
-            logging.debug(f"Inserted email hash {hash_id} with classification {classification_id}.")
         except MySQLdb.Error as e:
-            logging.error(f"Error inserting email hash: {e}")
+            logging.error(f"Database operation failed: {e}")
             self.connection.rollback()
+            raise
 
-    def get_classification(self, x_gm_msgid: str) -> str:
+    def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
+        query = """
+            INSERT IGNORE INTO email_hashes (hash_id, x_gm_msgid, classification_id)
+            VALUES (%s, %s, %s)
         """
-        Retrieves the classification ID for a given email message ID.
+        self.execute_commit(query, (hash_id, x_gm_msgid, classification_id))
 
-        Args:
-            x_gm_msgid (str): The Gmail message ID of the email.
+    def get_classification(self, x_gm_msgid: str) -> Optional[str]:
+        query = "SELECT classification_id FROM email_hashes WHERE x_gm_msgid = %s"
+        result = self.execute_query(query, (x_gm_msgid,))
+        return result[0]["classification_id"] if result else None
 
-        Returns:
-            str: The classification ID of the email.
-
-        Raises:
-            MySQLdb.OperationalError: If unable to fetch classification after retries.
-        """
-        max_retries = 5  # Set a limit on the number of retries
-        retries = 0
-        while retries < max_retries:
-            try:
-                query = "SELECT classification_id FROM email_hashes WHERE x_gm_msgid = %s"
-                self.cursor.execute(query, (x_gm_msgid,))
-                return self.cursor.fetchone()
-            except MySQLdb.OperationalError as e:
-                logging.warning(f"MySQL connection lost: {e}. Attempting to reconnect (attempt {retries + 1} of {max_retries}).")
-                self.reconnect()
-                retries += 1
-        # If we exhaust retries, raise an exception
-        raise MySQLdb.OperationalError(f"Unable to fetch classification after {max_retries} retries.")
-
-    def mail_map(self) -> Optional[dict[str, str]]:
-        """
-        Retrieve a mapping of classification IDs to their associated folder names.
-
-            Optional[dict[str, str]]: A dictionary where the keys are classification IDs and the values are folder names,
-                          or None if an error occurs.
-        """
+    def get_mail_map(self) -> Optional[Dict[str, str]]:
         query = "SELECT classification_id, folder_name FROM classification_folders"
-        try:
-            self.cursor.execute(query)
-            result = self.cursor.fetchall()
-            logging.debug(f"Retrieved folders for classification")
-            classification_map = {row['classification_id']: row['folder_name'] for row in result}
-            return classification_map
-        except MySQLdb.Error as e:
-            logging.error(f"Error retrieving folder for classification: {e}")
-            return None
+        result = self.execute_query(query)
+        return {row["classification_id"]: row["folder_name"] for row in result} if result else None
 
-    def log_email_processing(self, sequence_number: str, hash_id: str, source_folder: str, destination_folder: str, status: str) -> None:
-        """
-        Logs email processing details into the email_processing_log table.
-
-        Args:
-            sequence_number (str): The sequence number of the email processing event.
-            hash_id (str): The hash ID of the email.
-            source_folder (str): The source folder of the email.
-            destination_folder (str): The destination folder of the email.
-            status (str): The status of the email processing event.
-
-        Raises:
-            ValueError: If any input argument is None or empty.
-            MySQLdb.Error: If an error occurs during the database operation.
-        """
+    def log_email_processing(
+        self, sequence_number: str, hash_id: str, source_folder: str, destination_folder: str, status: str
+    ) -> None:
         if not all([sequence_number, hash_id, source_folder, destination_folder, status]):
             raise ValueError("All arguments must be non-empty strings.")
 
-        try:
-            # Check if the hash_id exists in the email_hashes table
-            hash_check_query = "SELECT 1 FROM email_hashes WHERE hash_id = %s"
-            self.cursor.execute(hash_check_query, (hash_id,))
-            if not self.cursor.fetchone():
-                logging.debug(f"hash_id '{hash_id}' does not exist in email_hashes. Inserting it now.")
-                # Auto-insert the missing hash_id into email_hashes
-                insert_hash_query = "INSERT INTO email_hashes (hash_id) VALUES (%s)"
-                self.cursor.execute(insert_hash_query, (hash_id,))
-                self.connection.commit()
-                logging.debug(f"Inserted missing hash_id '{hash_id}' into email_hashes.")
-
-            # Insert the processing log
-            insert_query = """
-                INSERT INTO email_processing_log (sequence_number, hash_id, source_folder, destination_folder, status)
-                VALUES (%s, %s, %s, %s, %s)
-            """
-            self.cursor.execute(insert_query, (sequence_number, hash_id, source_folder, destination_folder, status))
-            self.connection.commit()
-            logging.debug(f"Successfully logged email processing: Sequence={sequence_number}, Status={status}.")
-
-        except MySQLdb.Error as e:
-            logging.error(f"MySQL error logging email processing: {e}")
-            self.connection.rollback()
-            raise  # Re-raise the exception to handle it upstream if needed.
-        except ValueError as ve:
-            logging.error(f"Validation error: {ve}")
-            raise  # Re-raise the exception for handling at a higher level.
+        insert_query = """
+            INSERT INTO email_processing_log (sequence_number, hash_id, source_folder, destination_folder, status)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        self.execute_commit(insert_query, (sequence_number, hash_id, source_folder, destination_folder, status))
 
     def add_folder_and_classification(self, classification_id: str, folder_name: str) -> None:
+        check_folder_query = """
+            SELECT 1 FROM classification_folders 
+            WHERE classification_id = %s AND folder_name = %s
         """
-        Adds a folder and classification mapping to the database.
+        if self.execute_query(check_folder_query, (classification_id, folder_name)):
+            logging.warning(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
+            return
 
-        This method ensures that the folder_name exists in the classification_folders table
-        for the given classification_id. If the folder already exists, a warning is logged.
-        If the classification_id does not exist in the classifications table, it is added.
-        Finally, the folder-classification mapping is inserted into the classification_folders table.
-
-        Args:
-            classification_id (str): The ID of the classification.
-            folder_name (str): The name of the folder to map to the classification.
-
-        Raises:
-            MySQLdb.Error: If an error occurs during the database operation.
+        ensure_classification_query = """
+            INSERT IGNORE INTO classifications (classification_id, description, is_dynamic)
+            VALUES (%s, '', FALSE)
         """
-        try:
-            # Ensure the folder_name exists in the classification_folders table for the classification_id
-            check_folder_query = """
-                SELECT 1 FROM classification_folders 
-                WHERE classification_id = %s AND folder_name = %s
-            """
-            self.cursor.execute(check_folder_query, (classification_id, folder_name))
-            if self.cursor.fetchone():
-                logging.warning(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
-                return  # Exit if the folder already exists
+        self.execute_commit(ensure_classification_query, (classification_id,))
 
-            # Ensure the classification_id exists in the classifications table
-            ensure_classification_query = """
-                INSERT IGNORE INTO classifications (classification_id, description, is_dynamic)
-                VALUES (%s, '', FALSE)
-            """
-            self.cursor.execute(ensure_classification_query, (classification_id,))
-            self.connection.commit()  # Commit to ensure classification_id is added if missing
-
-            # Insert the folder-classification mapping into classification_folders
-            add_folder_query = """
-                INSERT INTO classification_folders (classification_id, folder_name)
-                VALUES (%s, %s)
-            """
-            self.cursor.execute(add_folder_query, (classification_id, folder_name))
-            self.connection.commit()
-            logging.info(f"Successfully added folder '{folder_name}' with classification ID '{classification_id}'.")
-
-        except MySQLdb.Error as e:
-            logging.error(f"Error adding folder and classification: {e}")
-            self.connection.rollback()
-
-    def set_trained_flag(self, hash_ids: list[str], trained: bool = True) -> None:
+        add_folder_query = """
+            INSERT INTO classification_folders (classification_id, folder_name)
+            VALUES (%s, %s)
         """
-        Updates the 'trained' flag for a list of hash IDs.
+        self.execute_commit(add_folder_query, (classification_id, folder_name))
 
-        Parameters:
-        - hash_ids: List of hash IDs (integers).
-        - trained: Boolean value to set the flag (default is True).
-        """
-        try:
-            # Ensure hash_ids is not empty
-            if not hash_ids:
-                logging.warning("No hash IDs provided to set 'trained' flag.")
-                return
+    def set_trained_flag(self, hash_ids: List[str], trained: bool = True) -> None:
+        if not hash_ids:
+            logging.warning("No hash IDs provided to set 'trained' flag.")
+            return
 
-            # Create placeholders for the query
-            placeholders = ', '.join(['%s'] * len(hash_ids))
-            query = f"UPDATE email_hashes SET trained = %s WHERE X_GM_MSGID IN ({placeholders})"
-
-            # Execute the query with all hash_ids
-            self.cursor.execute(query, [trained, *hash_ids])
-            self.connection.commit()
-            logging.debug(f"Set 'trained' flag to {trained} for hash IDs: {hash_ids}")
-        except MySQLdb.Error as e:
-            logging.error(f"Error setting 'trained' flag for hash IDs {hash_ids}: {e}")
-            self.connection.rollback()
+        placeholders = ', '.join(['%s'] * len(hash_ids))
+        query = f"UPDATE email_hashes SET trained = %s WHERE x_gm_msgid IN ({placeholders})"
+        self.execute_commit(query, [trained, *hash_ids])
 
     def is_trained(self, x_gm_msgid: str) -> bool:
-        """
-        Checks if the 'trained' flag is set for a given hash ID.
+        query = "SELECT trained FROM email_hashes WHERE x_gm_msgid = %s"
+        result = self.execute_query(query, (x_gm_msgid,))
+        return result[0]["trained"] if result else False
 
-        Parameters:
-        - x_gm_msgid: The x_gm_msgid of the email.
-
-        Returns:
-        - Boolean indicating if the email has been trained.
-        """
-        try:
-            query = "SELECT trained FROM email_hashes WHERE x_gm_msgid = %s"
-            self.cursor.execute(query, (x_gm_msgid,))
-            result = self.cursor.fetchone()
-            if result:
-                trained_flag = result[0]
-                logging.debug(f"Retrieved 'trained' flag for hash ID {x_gm_msgid}: {trained_flag}")
-                return trained_flag
-            else:
-                return False
-        except MySQLdb.Error as e:
-            logging.error(f"Error checking 'trained' flag for hash ID {x_gm_msgid}: {e}")
+    def update_mail_queue(self, thread_marker: str, msg_ids: List[int]) -> bool:
+        if not msg_ids:
+            logging.error("The input parameter msg_ids must be a non-empty list of integers.")
             return False
 
-    def update_mail_queue(self, thread_marker: str, msg_ids: list[int]):
-        """Add msg_ids to the queue and mark them with the current thread's marker."""
-        # Ensure msg_ids is a list of integers
-        if not isinstance(msg_ids, list) or not all(isinstance(i, int) for i in msg_ids):
-            logging.error("The input parameter msg_ids must be a list of integers.")
-            return False
-
-        sql = (
-            "INSERT INTO mail_que (x_gm_msgid, thread_marker) "
-            "VALUES (%s, %s) "
-            "ON DUPLICATE KEY UPDATE added_at = CURRENT_TIMESTAMP"
-            )
-
+        query = """
+            INSERT INTO mail_que (x_gm_msgid, thread_marker)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE added_at = CURRENT_TIMESTAMP
+        """
+        params = [(msg_id, thread_marker) for msg_id in msg_ids]
         try:
-            # Execute the query with the list of msg_ids and the current thread's marker
-            params = [(msg_id, thread_marker) for msg_id in msg_ids]
-            self.cursor.executemany(sql, params)
+            self.cursor.executemany(query, params)
             self.connection.commit()
-            rows_affected = self.cursor.rowcount
-
-            if rows_affected > 0:
-                logging.debug(f"Successfully added or updated {rows_affected} entries in mail_que.")
-            else:
-                logging.debug("No new entries added to mail_que. All records are up to date.")
-
             return True
         except MySQLdb.Error as e:
-            logging.error(f"Error updating mail_que: {e}", exc_info=True)
+            logging.error(f"Error updating mail queue: {e}")
+            self.connection.rollback()
             return False
 
     def fetch_mail_from_queue(self, thread_marker: str, batch_size: int) -> Generator[str, None, None]:
+        query = """
+            SELECT x_gm_msgid
+            FROM mail_que
+            WHERE thread_marker = %s AND processed != -1
+            LIMIT %s
         """
-        Fetches email IDs from the mail queue in batches and marks them with the current thread's marker.
-        Args:
-            thread_marker (str): The marker used to identify the current thread.
-            batch_size (int): The number of email IDs to fetch in each batch.
-        Yields:
-            str: The email ID from the mail queue.
-        Raises:
-            MySQLdb.Error: If there is an error fetching emails from the queue.
-        """
-        try:
-            # Fetch email IDs in batches
-            query = f"""
-                SELECT x_gm_msgid
-                FROM mail_que
-                WHERE thread_marker = %s
+        result = self.execute_query(query, (thread_marker, batch_size))
+        x_gm_msgids = [row["x_gm_msgid"] for row in result]
+
+        if x_gm_msgids:
+            update_query = f"""
+                UPDATE mail_que
+                SET thread_marker = %s
+                WHERE x_gm_msgid IN ({','.join(['%s'] * len(x_gm_msgids))})
                 AND processed != -1
-                LIMIT %s
-                """
-            self.cursor.execute(query, (thread_marker, batch_size))
-            result = self.cursor.fetchall()
-    
-            # Collect the email IDs
-            x_gm_msgids = [row[0] for row in result]
-    
-            if x_gm_msgids:
-                # Mark emails with the current thread's marker while fetching them
-                update_query = f"""
-                    UPDATE mail_que
-                    SET thread_marker = %s
-                    WHERE x_gm_msgid IN ({','.join(['%s'] * len(x_gm_msgids))})
-                    AND processed != -1
-                """
-                self.cursor.execute(update_query, (thread_marker, *x_gm_msgids))
-                self.connection.commit()
-    
-                # Yield email IDs one by one
-                for x_gm_msgid in x_gm_msgids:
-                    yield x_gm_msgid
-            else:
-                logging.debug("No emails found for the specified thread_marker.")
-    
-        except MySQLdb.Error as e:
-            logging.error(f"Error fetching emails from queue: {e}")
-
-    def pop_from_que(self, msg_id: int, thread_marker: str) -> bool:
-        """
-        Removes an email from the queue after processing.
-
-        This method deletes a record from the mail_que table with the provided
-        msg_id and thread_marker. If the deletion is successful, the transaction
-        is committed. If an error occurs, the transaction is rolled back and an
-        error message is logged.
-
-        Args:
-            msg_id (int): The message ID of the email to be removed.
-            thread_marker (str): The thread marker associated with the email.
-
-        Returns:
-            bool: True if the email was successfully removed, False otherwise.
-
-        Raises:
-            MySQLdb.Error: If an error occurs during the database operation.
-        """
-        try:
-            # Ensure only the current thread can pop its own emails
-            query = "DELETE FROM mail_que WHERE x_gm_msgid = %s AND thread_marker = %s AND processed != -1"
-            self.cursor.execute(query, (msg_id, thread_marker))
-            self.connection.commit()
-
-            rows_affected = self.cursor.rowcount
-            if rows_affected > 0:
-                logging.debug(f"Successfully removed x_gm_msgid {msg_id} from mail_que.")
-            else:
-                logging.debug(f"x_gm_msgid {msg_id} not found or being processed by another thread.")
-
-            return True
-        except MySQLdb.Error as e:
-            logging.error(f"Error popping from mail_que: {e}", exc_info=True)
-            return False
-
-    def fetch_thread_marker_count(self, thread_marker: str) -> int:
-        """
-        Fetch the total count of emails for a specific thread_marker.
-
-        Args:
-            thread_marker (str): The thread_marker to filter by.
-
-        Returns:
-            int: The total count of emails for the given thread_marker.
-        """
-        try:
-            query = """
-                SELECT 
-                    COALESCE(thread_marker, 'Total') AS thread_marker,
-                    COUNT(*) AS count
-                FROM 
-                    SpamVanquisher.mail_que
-                WHERE 
-                    thread_marker = %s AND processed != -1;
             """
-            self.cursor.execute(query, (thread_marker,))
-            result = self.cursor.fetchone()
-            
-            if result:
-                return result[1]  # The `count` column
-            else:
-                return 0  # No rows found
-        except MySQLdb.Error as e:
-            logging.error(f"Error fetching thread marker count: {e}", exc_info=True)
-            return 0
-        finally:
-            self.connection.commit()
-
-    def mark_email_as_failed(self, x_gm_msgid: int) -> bool:
-        """
-        Marks an email as failed to process in the `mail_que` table.
-
-        Args:
-            x_gm_msgid (int): The X-GM-MSGID of the email to update.
-
-        Returns:
-            bool: True if the update was successful, False otherwise.
-        """
-        query = "UPDATE `mail_que` SET `processed` = -1 WHERE `x_gm_msgid` = %s"
-        try:
-            # Get a database cursor
-            with self.connection.cursor() as cursor:
-                # Execute the update query
-                cursor.execute(query, (x_gm_msgid,))
-                # Commit the changes to the database
-                self.connection.commit()
-                logging.debug(f"Marked email with X-GM-MSGID {x_gm_msgid} as failed.")
-                return True
-        except Exception as e:
-            logging.error(f"Failed to mark email with X-GM-MSGID {x_gm_msgid} as failed: {e}", exc_info=True)
-            return False
-
+            self.execute_commit(update_query, (thread_marker, *x_gm_msgids))
+            yield from x_gm_msgids
