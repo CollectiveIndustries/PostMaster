@@ -1,6 +1,8 @@
 from __future__ import annotations  # Allows forward declarations
 import logging
 import time
+
+from lib.post import Email
 from .config import config
 
 def log_progress(index, total, start_time, stage="Processing"):
@@ -66,7 +68,7 @@ def ElapsedTimeFormat(start_time, stop_time) -> str:
         time_str = f"{seconds:02}"
     return time_str
 
-def sort_emails_by_folder(all_mail, classification_map):
+def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> dict:
     """
     Sorts email objects into lists based on their classification attributes.
 
@@ -83,7 +85,7 @@ def sort_emails_by_folder(all_mail, classification_map):
 
     # Iterate through emails and sort them based on classification_id
     for email in all_mail:
-        folder_name = classification_map.get(email.classification_id, "Unsorted")
+        folder_name = classification_map.get(email.class_id, "Unsorted")
         sorted_emails[folder_name].append(email)
 
     return sorted_emails

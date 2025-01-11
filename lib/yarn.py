@@ -260,7 +260,6 @@ class TrainerThread(ThreadBase):
         else:
             logging.warning(f"No emails were successfully processed in this batch.")
 
-# TODO rebuild following class with the updated PostOffice
 class ClassificationThread(ThreadBase):
     def __init__(self, name: str, mailbox: str, stop_event: threading.Event, barrier: threading.Barrier, batch_size: int):
         """

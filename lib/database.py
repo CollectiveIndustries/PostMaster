@@ -26,6 +26,7 @@ Usage example:
 """
 from typing import Generator, Optional, List, Dict
 import MySQLdb
+import MySQLdb.cursors
 import logging
 from .config import config
 
@@ -52,10 +53,18 @@ class EmailDatabase:
             self.reconnect()
 
     def reconnect(self):
-        """Reconnects to the database."""
+        """
+        Re-establish the database connection if it becomes stale.
+        """
         try:
-            if self.connection:
+            logging.info("Reconnecting to MySQL database...")
+
+            # Check if the connection is open before trying to close it
+            if self.connection and self.connection.open:
                 self.connection.close()
+                logging.info("Closed stale connection.")
+
+            # Establish a new connection
             self.connection = MySQLdb.connect(
                 host=config.SQL_HOST,
                 user=config.SQL_USER,
@@ -65,9 +74,9 @@ class EmailDatabase:
                 cursorclass=MySQLdb.cursors.DictCursor,
             )
             self.cursor = self.connection.cursor()
-            logging.info("Reconnected to the database.")
+            logging.info("Reconnection successful.")
         except MySQLdb.Error as e:
-            logging.error(f"Failed to reconnect: {e}")
+            logging.error(f"Error reconnecting to the database: {e}")
             raise
 
     def close(self):
@@ -79,11 +88,19 @@ class EmailDatabase:
         except MySQLdb.Error as e:
             logging.error(f"Error closing database connection: {e}")
 
-    def execute_query(self, query: str, params: Optional[tuple] = None) -> List[Dict]:
-        """Executes a query and returns the results."""
-        self.check_and_reconnect()
-        self.cursor.execute(query, params or ())
-        return self.cursor.fetchall()
+    def execute_query(self, query: str, params: tuple = None) -> list[dict]:
+        """
+        Execute a query and return the results as a list of dictionaries.
+        """
+        try:
+            self.check_and_reconnect()
+            self.cursor.execute(query, params or ())
+            return self.cursor.fetchall()
+        except MySQLdb.OperationalError as e:
+            logging.error(f"OperationalError occurred: {e}")
+            self.reconnect()
+            self.cursor.execute(query, params or ())
+            return self.cursor.fetchall()
 
     def execute_commit(self, query: str, params: Optional[tuple] = None):
         """Executes a query that modifies the database and commits changes."""
@@ -199,3 +216,11 @@ class EmailDatabase:
             """
             self.execute_commit(update_query, (thread_marker, *x_gm_msgids))
             yield from x_gm_msgids
+    
+    def fetch_thread_marker_count(self, thread_marker: str) -> int:
+        """
+        Fetch the total count of records associated with a specific thread_marker.
+        """
+        query = "SELECT COUNT(*) AS total_count FROM mail_que WHERE thread_marker = %s"
+        result = self.execute_query(query, (thread_marker,))
+        return result[0]['total_count'] if result else 0
