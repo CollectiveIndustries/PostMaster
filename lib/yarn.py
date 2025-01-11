@@ -21,7 +21,7 @@ import time
 from .post import PostOffice, Email
 from .database import EmailDatabase
 from .MailNet import MailNet
-from .utils import interruptible_sleep, log_progress
+from .utils import interruptible_sleep, log_progress, sort_emails_by_folder
 from .config import config
 
 def split_batches(total: int, batch_size: int):
@@ -277,65 +277,126 @@ class ClassificationThread(ThreadBase):
         self.post_office = PostOffice(stop_event, mailbox)
 
     def run(self):
+        """Main thread runner."""
+        logging.info(f"Trainer thread for '{self.mailbox}' started.")
+        self.post_office = PostOffice(self.stop_event, self.mailbox)
 
-        while not self.stop_event.is_set():
-            # Wait for sync_event to ensure training threads have completed
+        try:
+            while not self.stop_event.is_set():
+                self.ThreadSleep()
+                logging.info("Checking IMAP state and database connectivity.")
+                self.post_office.check_imap_state(readonly=False)
+                self.mail_net.load_model()
+                self.email_db.check_and_reconnect()
+
+                # Pre-process emails: fetch and update the queue
+                x_gm_msgids = self.pre_process()
+                if not x_gm_msgids:
+                    logging.debug("No emails to process in the queue.")
+                    continue
+
+                # Process emails: classify and sort
+                sorted_emails = self.process(x_gm_msgids)
+
+                # Post-process emails: move and log
+                self.post_process(sorted_emails)
+
+            logging.info("Shutting down classification thread! Waiting for other threads to finish.")
             self.ThreadSleep()
 
-            self.mail_net.load_model()
-            self.email_db.check_and_reconnect()
+        except Exception as e:
+            logging.error("Error in classification thread.", exc_info=True)
 
-            self.post_office.connect()
-            self.post_office.select_box(readonly=False)
+    # 1. Pre-process stage
+    def pre_process(self):
+        """
+        Fetches email X-GM-MSGIDs in batches and updates the database queue.
 
-            # Fetch X-GM-MSGIDs from the mail_que (the queue of unprocessed emails)
-            logging.info(f"Fetching list of mail from '{self.mailbox}'")
-            total = self.post_office.total_emails(self.mailbox)
-            index = 0
-            for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
-                self.email_db.update_mail_queue(self.name, batch)
-                log_progress(len(batch) + index, total, time.time())
-                index += len(batch)
+        Returns:
+            list: A list of email X-GM-MSGIDs to process.
+        """
+        total = self.post_office.total_emails(self.mailbox)
+        x_gm_msgids = []
 
-            index = 0
-            start_time = time.time()
-            total = self.email_db.fetch_thread_marker_count(self.name)
-            for start, _end_ in split_batches(total, self.batch_size):
-                if self.stop_event.is_set():
-                    break
-                logging.info(f"Processing batch: {start + 1} to {_end_} out of {total}")
+        index = 0
+        start_time = time.time()
+        for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
+            self.email_db.update_mail_queue(self.name, batch)
+            log_progress(len(batch) + index, total, start_time, stage="Fetching X-GM-MSGIDs")
+            x_gm_msgids.extend(batch)
+            index += len(batch)
 
-                for email in self.email_db.fetch_mail_from_queue(self.name, self.batch_size):
-                    if self.stop_event.is_set():
-                        break
-                    try:
-                        email = self.post_office.fetch_single_email(email)
-                        if not email:
-                            logging.warning(f"Failed to fetch email with X-GM-MSGID '{email}'. Skipping.")
-                            continue
+        return x_gm_msgids
 
-                        class_id = self.mail_net.classify(email)
-                        self.email_db.add_email_hash(email.hash, email.X_GM_MSGID, class_id)
-                        self.email_db.log_email_processing(email.X_GM_MSGID, email.hash, self.mailbox, config.SPAM_FOLDER if class_id == 0 else config.HAM_FOLDER, "classified")
-                        if class_id == 0:
-                            self.post_office.move(email.X_GM_MSGID, config.SPAM_FOLDER)
-                            logging.debug(f"Email with X-GM-MSGID '{email.X_GM_MSGID}' classified as spam.")
-                        else:
-                            self.post_office.move(email.X_GM_MSGID, config.HAM_FOLDER)
-                            logging.debug(f"Email with X-GM-MSGID '{email.X_GM_MSGID}' classified as ham.")
+    # 2. Process stage
+    def process(self, x_gm_msgids):
+        """
+        Classifies and sorts emails based on their attributes.
 
-                        self.email_db.pop_from_que(email.X_GM_MSGID, self.name)
+        Args:
+            x_gm_msgids (list): List of email message IDs to process.
 
-                        if index % 100 == 0:
-                            log_progress(index + 1, total, start_time)
-                        index += 1
+        Returns:
+            dict: A dictionary where keys are folder names and values are lists of email objects.
+        """
+        email_batch = []
+        sorted_emails = {}
 
-                    except Exception as e:
-                        logging.error(f"Failed to fetch email with X-GM-MSGID '{email}': {e}")
-                        continue
+        start_time = time.time()
+        index = 0
 
-        logging.info("Shutting down classification thread! Waiting for other threads to finish.")
-        self.ThreadSleep()
+        for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
+            if self.stop_event.is_set():
+                break
+            email_batch.append(email)
+
+            # Periodic progress logging
+            if index % 100 == 0:
+                log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Fetching emails")
+            index += 1
+
+            # Full batch ready for classification
+            if len(email_batch) >= self.batch_size:
+                logging.info(f"Processing batch of {len(email_batch)} emails.")
+                self.mail_net.classify_emails(email_batch)  # Update email objects with classifications
+                sorted_emails.update(sort_emails_by_folder(email_batch))
+                email_batch = []  # Reset batch
+
+        # Process remaining emails
+        if email_batch:
+            logging.info(f"Processing the final batch of {len(email_batch)} emails.")
+            self.mail_net.classify_emails(email_batch)
+            sorted_emails.update(sort_emails_by_folder(email_batch))
+
+        return sorted_emails
+
+    # 3. Post-process stage
+    def post_process(self, sorted_emails):
+        """
+        Moves emails to appropriate folders and updates the processing log.
+
+        Args:
+            sorted_emails (dict): Dictionary with folder names as keys and email objects as values.
+        """
+        for folder_name, emails in sorted_emails.items():
+            if not emails:
+                continue
+
+            # Extract uids for moving
+            uids = [email.uid for email in emails]
+
+            # Move emails to the folder
+            self.post_office.move(uids, folder_name)
+
+            # Update the processing log
+            for email in emails:
+                self.email_db.log_email_processing(
+                    sequence_number=email.msgid,
+                    hash_id=email.uid.decode('utf-8'),  # Assuming uid is bytes
+                    source_folder=self.mailbox,
+                    destination_folder=folder_name,
+                    status="Processed"
+                )
 
 class LogRotation(threading.Thread):
     def __init__(self, stop_event: threading.Event):

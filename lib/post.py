@@ -75,6 +75,7 @@ class Email:
         self.recipient = None
         self.payload = None
         self.uid = None
+        self.class_id = None
 
         self._parse(raw_data)
         self.hash = EmailHasher.generate_sha256sum(self.text())
@@ -434,10 +435,10 @@ class PostOffice():
         Raises:
             Exception: If an error occurs during the process of moving the email.
         """
-        logging.debug(f"Moving '{len(uids)}' emails from '{self.mailbox}' to '{destination_folder}'.")
+        logging.info(f"Moving '{len(uids)}' emails from '{self.mailbox}' to '{destination_folder}'.")
         self.check_imap_state(readonly=False)
 
-        uid_str = ",".join(b.decode() for b in uids)
+        uid_str = ",".join(uids)
         try:
             # Write a check for cap support
             status, _ = self.srv.uid('COPY', uid_str, destination_folder)

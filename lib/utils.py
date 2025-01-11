@@ -65,3 +65,25 @@ def ElapsedTimeFormat(start_time, stop_time) -> str:
     else:
         time_str = f"{seconds:02}"
     return time_str
+
+def sort_emails_by_folder(all_mail, classification_map):
+    """
+    Sorts email objects into lists based on their classification attributes.
+
+    Args:
+        all_mail (list): A list of email objects with classification_id attributes.
+        classification_map (dict): A mapping of classification_id to folder_name.
+
+    Returns:
+        dict: A dictionary where keys are folder names and values are lists of email objects for each folder.
+    """
+    # Initialize the result dictionary with empty lists for each folder_name
+    sorted_emails = {folder_name: [] for folder_name in classification_map.values()}
+    sorted_emails["Unsorted"] = []  # Add a default folder for unmatched emails
+
+    # Iterate through emails and sort them based on classification_id
+    for email in all_mail:
+        folder_name = classification_map.get(email.classification_id, "Unsorted")
+        sorted_emails[folder_name].append(email)
+
+    return sorted_emails

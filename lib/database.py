@@ -152,38 +152,27 @@ class EmailDatabase:
         # If we exhaust retries, raise an exception
         raise MySQLdb.OperationalError(f"Unable to fetch classification after {max_retries} retries.")
 
-    def get_folder_for_classification(self, classification_id: str) -> Optional[str]:
+    def mail_map(self) -> Optional[dict[str, str]]:
         """
-        Retrieve the folder name associated with a given classification ID.
-        Args:
-            classification_id (str): The ID of the classification to retrieve the folder for.
-        Returns:
-            Optional[str]: The name of the folder associated with the classification ID,
-                           or None if no folder is found or an error occurs.
+        Retrieve a mapping of classification IDs to their associated folder names.
+
+            Optional[dict[str, str]]: A dictionary where the keys are classification IDs and the values are folder names,
+                          or None if an error occurs.
         """
+        query = "SELECT classification_id, folder_name FROM classification_folders"
         try:
-            query = "SELECT folder_name FROM classification_folders WHERE classification_id = %s"
-            self.cursor.execute(query, (classification_id,))
-            result = self.cursor.fetchone()
-            if result:
-                folder_name = result[0]
-                logging.debug(f"Retrieved folder for classification {classification_id}: {folder_name}")
-                return folder_name
-            else:
-                logging.warning(f"No folder found for classification {classification_id}.")
-                return None
+            self.cursor.execute(query)
+            result = self.cursor.fetchall()
+            logging.debug(f"Retrieved folders for classification")
+            classification_map = {row['classification_id']: row['folder_name'] for row in result}
+            return classification_map
         except MySQLdb.Error as e:
             logging.error(f"Error retrieving folder for classification: {e}")
             return None
 
     def log_email_processing(self, sequence_number: str, hash_id: str, source_folder: str, destination_folder: str, status: str) -> None:
         """
-        Logs email processing details.
-
-        This method inserts a new record into the email_processing_log table with the provided
-        sequence_number, hash_id, source_folder, destination_folder, and status. If the insertion
-        is successful, the transaction is committed. If an error occurs, the transaction is rolled
-        back and an error message is logged.
+        Logs email processing details into the email_processing_log table.
 
         Args:
             sequence_number (str): The sequence number of the email processing event.
@@ -193,19 +182,40 @@ class EmailDatabase:
             status (str): The status of the email processing event.
 
         Raises:
+            ValueError: If any input argument is None or empty.
             MySQLdb.Error: If an error occurs during the database operation.
         """
+        if not all([sequence_number, hash_id, source_folder, destination_folder, status]):
+            raise ValueError("All arguments must be non-empty strings.")
+
         try:
-            query = """
+            # Check if the hash_id exists in the email_hashes table
+            hash_check_query = "SELECT 1 FROM email_hashes WHERE hash_id = %s"
+            self.cursor.execute(hash_check_query, (hash_id,))
+            if not self.cursor.fetchone():
+                logging.debug(f"hash_id '{hash_id}' does not exist in email_hashes. Inserting it now.")
+                # Auto-insert the missing hash_id into email_hashes
+                insert_hash_query = "INSERT INTO email_hashes (hash_id) VALUES (%s)"
+                self.cursor.execute(insert_hash_query, (hash_id,))
+                self.connection.commit()
+                logging.debug(f"Inserted missing hash_id '{hash_id}' into email_hashes.")
+
+            # Insert the processing log
+            insert_query = """
                 INSERT INTO email_processing_log (sequence_number, hash_id, source_folder, destination_folder, status)
                 VALUES (%s, %s, %s, %s, %s)
             """
-            self.cursor.execute(query, (sequence_number, hash_id, source_folder, destination_folder, status))
+            self.cursor.execute(insert_query, (sequence_number, hash_id, source_folder, destination_folder, status))
             self.connection.commit()
-            logging.debug(f"Logged email processing: {sequence_number}, {status}.")
+            logging.debug(f"Successfully logged email processing: Sequence={sequence_number}, Status={status}.")
+
         except MySQLdb.Error as e:
-            logging.error(f"Error logging email processing: {e}")
+            logging.error(f"MySQL error logging email processing: {e}")
             self.connection.rollback()
+            raise  # Re-raise the exception to handle it upstream if needed.
+        except ValueError as ve:
+            logging.error(f"Validation error: {ve}")
+            raise  # Re-raise the exception for handling at a higher level.
 
     def add_folder_and_classification(self, classification_id: str, folder_name: str) -> None:
         """
@@ -258,7 +268,7 @@ class EmailDatabase:
     def set_trained_flag(self, hash_ids: list[str], trained: bool = True) -> None:
         """
         Updates the 'trained' flag for a list of hash IDs.
-    
+
         Parameters:
         - hash_ids: List of hash IDs (integers).
         - trained: Boolean value to set the flag (default is True).
@@ -268,11 +278,11 @@ class EmailDatabase:
             if not hash_ids:
                 logging.warning("No hash IDs provided to set 'trained' flag.")
                 return
-            
+
             # Create placeholders for the query
             placeholders = ', '.join(['%s'] * len(hash_ids))
             query = f"UPDATE email_hashes SET trained = %s WHERE X_GM_MSGID IN ({placeholders})"
-            
+
             # Execute the query with all hash_ids
             self.cursor.execute(query, [trained, *hash_ids])
             self.connection.commit()
@@ -281,14 +291,13 @@ class EmailDatabase:
             logging.error(f"Error setting 'trained' flag for hash IDs {hash_ids}: {e}")
             self.connection.rollback()
 
-
     def is_trained(self, x_gm_msgid: str) -> bool:
         """
         Checks if the 'trained' flag is set for a given hash ID.
-        
+
         Parameters:
         - x_gm_msgid: The x_gm_msgid of the email.
-        
+
         Returns:
         - Boolean indicating if the email has been trained.
         """
