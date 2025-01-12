@@ -39,6 +39,23 @@ def split_batches(total: int, batch_size: int):
         end = min(start + batch_size, total)
         yield start, end
 
+class MultiEventHandler:
+    def __init__(self, events):
+        self.events = events  # List of events
+        self.lock = threading.Lock()  # Optional: to synchronize state changes
+
+    def wait_for_all(self):
+        logging.info("Waiting for all events to be set.")
+        # Wait for all events to be set
+        for event in self.events:
+            event.wait()
+        logging.info("All events are set. Proceeding.")
+
+    def reset(self):
+        # Reset all events (if necessary)
+        for event in self.events:
+            event.clear()
+
 class ThreadBase(threading.Thread):
     def __init__(self, name: str, mailbox: str | tuple[str, str, int], stop_event: threading.Event, barrier: threading.Barrier, batch_size: int):
         """
@@ -140,8 +157,16 @@ class TrainerThread(ThreadBase):
                 self.email_db.check_and_reconnect()
 
                 # Fetch emails from IMAP
-                logging.info(f"Fetching email message IDs from '{self.src}'.")
+                logging.info(f"Checking for mail in '{self.src}'.")
                 total = self.post_office.total_emails(self.src)
+
+                if total == 0:
+                    logging.info(f"No emails to process in '{self.src}'. Sleeping until the next cycle.")
+                    self.ThreadSleep()  # Sleep if no emails to process # TODO CRITICAL work out thread sleep event logic
+                    interruptible_sleep(self.SleepTime, self.stop_event)  # Allow interruptible sleep
+                    continue  # Skip the rest of the loop and start the next cycle
+
+                logging.info(f"Fetching email message IDs from '{self.src}'.")
                 index = 0
                 start_time = time.time()
 
@@ -158,14 +183,13 @@ class TrainerThread(ThreadBase):
                     self.mail_net.load_model()
                     self._ProcessesBatches_(total_count)
                     logging.info(f"Training completed. Waiting for next cycle.")
-                else:
-                    logging.info(f"No emails to process in '{self.src}'. Waiting for the next cycle.")
 
                 self.ThreadSleep()
                 interruptible_sleep(self.SleepTime, self.stop_event)
 
         except Exception as e:
             logging.error(f"Error in trainer thread: {e}", exc_info=True)
+            self.stop_event.set()
 
         logging.info(f"Trainer thread stopped. Waiting for other threads to finish.")
         self.ThreadSleep()
@@ -285,7 +309,6 @@ class ClassificationThread(ThreadBase):
                 self.ThreadSleep()
                 logging.info("Checking IMAP state and database connectivity.")
                 self.post_office.check_imap_state(readonly=False)
-                self.mail_net.load_model()
                 self.email_db.check_and_reconnect()
 
                 # Pre-process emails: fetch and update the queue
@@ -305,6 +328,7 @@ class ClassificationThread(ThreadBase):
 
         except Exception as e:
             logging.error("Error in classification thread.", exc_info=True)
+            self.stop_event.set()
 
     # 1. Pre-process stage
     def pre_process(self):
@@ -331,39 +355,40 @@ class ClassificationThread(ThreadBase):
     def process(self, x_gm_msgids):
         """
         Collects all emails, classifies them, and sorts them based on their attributes.
-    
+
         Args:
             x_gm_msgids (list): List of email message IDs to process.
-    
+
         Returns:
             dict: A dictionary where keys are folder names and values are lists of email objects.
         """
         email_batch = []
         sorted_emails = {}
-    
+
         start_time = time.time()
         index = 0
         classication_map = self.email_db.get_mail_map()
-    
+
         # Collect all emails first
         for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
             if self.stop_event.is_set():
                 break
             email_batch.append(email)
-    
+
             # Periodic progress logging
             if index % 100 == 0:
                 log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Fetching emails")
             index += 1
-    
+
         # Once all emails are collected, classify them
         if email_batch:
             logging.info(f"Classifying a total of {len(email_batch)} emails.")
+            self.mail_net.load_model()
             self.mail_net.classify_emails(email_batch)  # Classify all emails at once
-    
+
             # Sort emails by folder after classification
             sorted_emails = sort_emails_by_folder(email_batch, classication_map)
-    
+
         return sorted_emails
 
     # 3. Post-process stage
@@ -388,7 +413,7 @@ class ClassificationThread(ThreadBase):
             for email in emails:
                 self.email_db.log_email_processing(
                     sequence_number=email.msgid,
-                    hash_id=email.uid.decode('utf-8'),  # Assuming uid is bytes
+                    hash_id=email.hash,  # Assuming uid is bytes
                     source_folder=self.mailbox,
                     destination_folder=folder_name,
                     status="Processed"
@@ -503,3 +528,4 @@ class LogRotation(threading.Thread):
 
         except Exception as e:
             logging.error("Failed to clean up old logs for period '%s': %s", period, e, exc_info=True)
+            self.stop_event.set()

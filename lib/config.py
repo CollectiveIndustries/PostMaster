@@ -26,6 +26,7 @@ class conf:
         self.INBOX = CONFIG.get('Folders', 'inbox')
         self.SPAM_FOLDER = CONFIG.get('Folders', 'spam_folder')
         self.HAM_FOLDER = CONFIG.get('Folders', 'ham_folder')
+        self.UNSORTED = CONFIG.get('Folders', 'unsorted')
         self.INFECTED_FOLDER = CONFIG.get('Folders', 'infected_folder')
         self.SPAM_LEARN = CONFIG.get('Folders', 'spam_learn')
         self.HAM_LEARN = CONFIG.get('Folders', 'ham_learn')

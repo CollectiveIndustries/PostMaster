@@ -88,26 +88,28 @@ class MailNet:
     def classify_emails(self, emails: list[Email]) -> None:
         """
         Classify a list of Email objects as spam (1) or ham (0) and update their class_id attribute.
-
-        Parameters:
-        - emails (list): List of Email objects to classify.
-
-        Returns:
-        - None: The input list is modified in place, with the class_id attribute updated.
         """
         with self.model_lock:
             if not self.model:
                 raise ValueError("Model is not trained or loaded.")
-
+    
             # Preprocess data for all emails
-            X = self.preprocess_data([email.text() for email in emails])
-
+            email_texts = [email.text() for email in emails]
+            X = self.preprocess_data(email_texts)
+    
+            # Debug: Check preprocessed data
+            logging.debug(f"Preprocessed data sample: {X[:5]}")
+    
             # Predict classifications
             predictions = self.model.predict(X)
-
+    
+            # Debug: Check predictions
+            logging.debug(f"Predictions: {predictions[:10]}")
+    
             # Update class_id for each email
             for email, prediction in zip(emails, predictions):
                 email.class_id = 1 if prediction > 0.5 else 0
+                logging.debug(f"Email: {email.text()}, Prediction: {prediction}, Class ID: {email.class_id}")
 
     def save_model(self, model_path: str = f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras") -> None:
         """Save the model and tokenizer to disk."""
@@ -163,4 +165,4 @@ class MailNet:
             gc.collect()
             logging.info("Model unloaded.")
         else:
-            logging.warning("No model is loaded to unload.")
+            logging.debug("No model is loaded to unload.")

@@ -43,6 +43,8 @@ import re
 import socket
 from typing import Generator
 from imaplib import IMAP4
+
+from lib.utils import log_progress
 from .database import EmailDatabase
 from .config import config
 
@@ -295,14 +297,14 @@ class PostOffice():
         """
         total_emails = len(x_gm_msgids)
         logging.info(f"Fetching {total_emails} emails in chunks of {chunk_size}.")
-        start_time = time.time()
 
+        start_time = time.time()
+        index = 0
         for chunk_start in range(0, total_emails, chunk_size):
             chunk = x_gm_msgids[chunk_start:chunk_start + chunk_size]
             uid_map = {}
 
             # Step 1: Search for UIDs using X-GM-MSGID
-            logging.info(f"Searching for UIDs for {len(chunk)} X-GM-MSGIDs.")
             for msg_id in chunk:
                 try:
                     self.reconnect()  # Ensure IMAP connection is alive
@@ -310,6 +312,10 @@ class PostOffice():
                     if status == "OK" and search_data and search_data[0]:
                         uid = search_data[0].strip()
                         uid_map[uid.decode()] = msg_id
+                        if index % 100 == 0:
+                            log_progress(index, total_emails, start_time, "Searching for UIDs")
+                        index += 1
+
                 except Exception as e:
                     logging.error(f"Error searching for X-GM-MSGID {msg_id}: {e}")
 
@@ -342,8 +348,6 @@ class PostOffice():
                             yield email_obj
                 except Exception as e:
                     logging.error(f"Error fetching email data for UIDs: {e}")
-
-            logging.info(f"Chunk progress: {chunk_start + len(chunk)}/{total_emails} emails processed.")
 
     def search_with_retry(self, x_gm_msgid: int) -> str | None:
         """
@@ -635,7 +639,6 @@ class PostOffice():
 
                 # Fetch the X-GM-MSGID for the batch
                 result, msg_data = self.srv.uid('FETCH', ",".join(batch_ids_str), "(X-GM-MSGID)")
-
 
                 if result == "OK" and msg_data:
                     batch_msgids = []
