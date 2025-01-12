@@ -55,7 +55,6 @@ class MultiEventHandler:
         # Reset all events (if necessary)
         for event in self.events:
             event.clear()
-
 class ThreadBase(threading.Thread):
     def __init__(self, name: str, mailbox: str | tuple[str, str, int], stop_event: threading.Event, barrier: threading.Barrier, batch_size: int):
         """
@@ -276,7 +275,7 @@ class TrainerThread(ThreadBase):
 
             except Exception as e:
                 logging.error(f"Failed to process email with X-GM-MSGID '{email.msgid}': {e}", exc_info=True)
-        
+
         self.post_office.move(uids=uid_lst, destination_folder=self.dst)
 
         if trained_msg_ids:

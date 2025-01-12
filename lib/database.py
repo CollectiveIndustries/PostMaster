@@ -216,7 +216,7 @@ class EmailDatabase:
             """
             self.execute_commit(update_query, (thread_marker, *x_gm_msgids))
             yield from x_gm_msgids
-    
+
     def fetch_thread_marker_count(self, thread_marker: str) -> int:
         """
         Fetch the total count of records associated with a specific thread_marker.
@@ -224,3 +224,30 @@ class EmailDatabase:
         query = "SELECT COUNT(*) AS total_count FROM mail_que WHERE thread_marker = %s"
         result = self.execute_query(query, (thread_marker,))
         return result[0]['total_count'] if result else 0
+
+    def pop_from_que(self, msgid: int, thread_marker: str) -> bool:
+        """
+        Remove an email from the queue based on its message ID and thread marker.
+
+        Args:
+            msgid (str): The unique message ID of the email to be removed.
+            thread_marker (str): The thread marker to match for the email (e.g., 'inbox', 'spam_learn', 'ham_learn').
+
+        Returns:
+            bool: True if the email was successfully removed, False otherwise.
+        """
+        with self.connection.cursor() as cursor:
+            # Step 1: Perform the deletion query
+            delete_query = """
+            DELETE FROM mail_que
+            WHERE x_gm_msgid = %s AND thread_marker = %s
+            """
+            cursor.execute(delete_query, (msgid, thread_marker))
+
+            # Step 2: Check if the deletion was successful
+            if cursor.rowcount > 0:
+                self.connection.commit()
+                return True
+            else:
+                self.connection.rollback()
+                return False
