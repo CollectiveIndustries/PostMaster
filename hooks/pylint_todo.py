@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Pre-commit hook to run pylint once, and append a FIXME comment to the end of each offending line.
+ANSI color codes are removed.
 """
 
 import re
@@ -8,17 +9,26 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Regex to remove ANSI escape codes
+ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
 # Collect files from pre-commit
 files = [Path(f) for f in sys.argv[1:] if f.endswith(".py")]
 if not files:
     sys.exit(0)
 
-# Run pylint once on all files
-result = subprocess.run(["pylint", *map(str, files)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+# Run pylint once on all files, no colors, text format
+result = subprocess.run(
+    ["pylint", "--score=no", "--output-format=text", "--reports=no", *map(str, files)],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
 
-pylint_output = result.stdout + "\n" + result.stderr
+# Remove ANSI codes
+pylint_output = ansi_escape.sub("", result.stdout + "\n" + result.stderr)
 
-# Example pylint line: FrostWardenSanctum.py:12:4: W1203: Use lazy % formatting in logging functions
+# Pattern to parse pylint lines
 pattern = re.compile(r"^(.*\.py):(\d+):\d+: ([A-Z][0-9]+): (.*)$")
 
 for line in pylint_output.splitlines():
