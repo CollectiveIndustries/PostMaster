@@ -45,6 +45,26 @@ class Conf:
         self.SQL_PASSWORD = self._cfg.get_value("MySQL", "password")
         self.SQL_PORT = self._cfg.get_value("MySQL", "port", 3306)
 
+        # Global Application Settings
+
+        # Logger settings
+        self.LOG_FILE = self._cfg.get_value("Logging", "log_path", "logs/SpamVanquisher.log")
+        self.BACKUP_COUNT = self._cfg.get_value("Logging", "backup_count", 4)
+        self.CHECK_INTERVAL = self._cfg.get_value("Logging", "CheckInterval", 300)
+        self.MAX_SIZE = self._parse_size(self._cfg.get_value("Logging", "LogSize", "2g"))
+
+    def _parse_size(self, size_str: str) -> int:
+        """Convert human-readable size string to bytes (e.g., '2g', '500m', '128k')."""
+        size_str = size_str.strip().lower()
+        if size_str.endswith("g"):
+            return int(float(size_str[:-1]) * 1024 ** 3)
+        elif size_str.endswith("m"):
+            return int(float(size_str[:-1]) * 1024 ** 2)
+        elif size_str.endswith("k"):
+            return int(float(size_str[:-1]) * 1024)
+        else:
+            # Assume bytes if no unit
+            return int(size_str)
 
 # CLI helper
 def parse_args():
