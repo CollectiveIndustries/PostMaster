@@ -3,9 +3,9 @@
 Pre-commit hook to run pylint once, and append a FIXME comment to the end of each offending line.
 """
 
+import re
 import subprocess
 import sys
-import re
 from pathlib import Path
 
 # Collect files from pre-commit
@@ -14,12 +14,7 @@ if not files:
     sys.exit(0)
 
 # Run pylint once on all files
-result = subprocess.run(
-    ["pylint", *map(str, files)],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True
-)
+result = subprocess.run(["pylint", *map(str, files)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 pylint_output = result.stdout + "\n" + result.stderr
 
