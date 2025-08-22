@@ -102,6 +102,11 @@ repos:
   # Tests run last
   - repo: local
     hooks:
+      - id: lazy-format
+        name: Fix logging f-strings
+        entry: python lazy_format.py
+        language: system
+        files: \.py$
       - id: pylint-todo
         name: Append pylint FIXME comments
         entry: hooks/pylint_todo.py

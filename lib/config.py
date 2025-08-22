@@ -75,4 +75,4 @@ def parse_args():
 
 # Initialize configuration with optional CLI override
 args = parse_args()
-config = Conf(config_path=args.config)
+config = Conf(config_path=args.config)  # FIXME pylint: C0304: Final newline missing (missing-final-newline)
