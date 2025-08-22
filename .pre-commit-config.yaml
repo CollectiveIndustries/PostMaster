@@ -98,9 +98,17 @@ repos:
         language_version: python3.13
         args: ['--baseline', '.secrets.baseline']
 
+
   # Tests run last
   - repo: local
     hooks:
+      - id: pylint-todo
+        name: Append pylint FIXME comments
+        entry: hooks/pylint_todo.py
+        language: system
+        pass_filenames: true
+        always_run: true
+
       - id: pytest
         name: Run unit tests
         entry: pytest
