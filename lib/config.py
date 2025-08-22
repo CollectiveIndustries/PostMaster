@@ -57,17 +57,13 @@ class Conf:
     def _parse_size(self, size_str: str) -> int:
         """Convert human-readable size string to bytes (e.g., '2g', '500m', '128k')."""
         size_str = size_str.strip().lower()
-        if size_str.endswith(
-            "g"
-        ):  # FIXME pylint: R1705: Unnecessary "elif" after "return", remove the leading "el" from "elif" (no-else-return)
+        if size_str.endswith("g"):
             return int(float(size_str[:-1]) * 1024**3)
-        elif size_str.endswith("m"):
+        if size_str.endswith("m"):
             return int(float(size_str[:-1]) * 1024**2)
-        elif size_str.endswith("k"):
+        if size_str.endswith("k"):
             return int(float(size_str[:-1]) * 1024)
-        else:
-            # Assume bytes if no unit
-            return int(size_str)
+        return int(size_str)
 
 
 # CLI helper
