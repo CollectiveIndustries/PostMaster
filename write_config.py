@@ -42,9 +42,7 @@ def write_default_config():
     if os.path.exists(CONFIG_FILE):
         print(f"{CONFIG_FILE} already exists. Skipping write.")
         return
-    with open(  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)
-        CONFIG_FILE, "w"
-    ) as f:  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)  # FIXME pylint: E0011: Unrecognized file option 'unspecified-encoding' (unrecognized-inline-option)
+    with open(CONFIG_FILE, "w") as f:
         yaml.dump(DEFAULT_CONFIG, f, sort_keys=False)
     print(f"Default configuration written to {CONFIG_FILE}")
 

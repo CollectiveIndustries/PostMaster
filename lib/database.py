@@ -24,20 +24,12 @@ class EmailDatabase:
         """
         self.db.execute(query, (hash_id, x_gm_msgid, classification_id), commit=True)
 
-    def get_classification(
-        self, x_gm_msgid: str
-    ) -> Optional[  # FIXME pylint: R6003: Consider using alternative Union syntax instead of 'Optional' (consider-alternative-union-syntax)
-        str
-    ]:  # FIXME pylint: R6003: Consider using alternative Union syntax instead of 'Optional' (consider-alternative-union-syntax)  # FIXME pylint: E0011: Unrecognized file option 'consider-alternative-union-syntax' (unrecognized-inline-option)
+    def get_classification(self, x_gm_msgid: str) -> Optional[str]:
         query = "SELECT classification_id FROM email_hashes WHERE x_gm_msgid = %s"
         result = self.db.execute(query, (x_gm_msgid,), fetch=True)
         return result[0]["classification_id"] if result else None
 
-    def get_mail_map(
-        self,
-    ) -> Optional[  # FIXME pylint: R6003: Consider using alternative Union syntax instead of 'Optional' (consider-alternative-union-syntax)
-        Dict[str, str]  # FIXME pylint: W6001: 'typing.Dict' is deprecated, use 'dict' instead (deprecated-typing-alias)
-    ]:  # FIXME pylint: R6003: Consider using alternative Union syntax instead of 'Optional' (consider-alternative-union-syntax)  # FIXME pylint: W6001: 'typing.Dict' is deprecated, use 'dict' instead (deprecated-typing-alias)  # FIXME pylint: E0011: Unrecognized file option 'deprecated-typing-alias' (unrecognized-inline-option)
+    def get_mail_map(self) -> Optional[Dict[str, str]]:
         query = "SELECT classification_id, folder_name FROM classification_folders"
         result = self.db.execute(query, fetch=True)
         return {row["classification_id"]: row["folder_name"] for row in result} if result else None
@@ -57,9 +49,7 @@ class EmailDatabase:
         # Avoid duplicate folder
         check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
         if self.db.execute(check_query, (classification_id, folder_name), fetch=True):
-            logging.warning(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
-                f"Folder '{folder_name}' with classification ID '{classification_id}' already exists."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
+            logging.warning(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
             return
 
         # Ensure classification exists
@@ -72,13 +62,7 @@ class EmailDatabase:
         add_query = "INSERT INTO classification_folders (classification_id, folder_name) VALUES (%s, %s)"
         self.db.execute(add_query, (classification_id, folder_name), commit=True)
 
-    def set_trained_flag(
-        self,
-        hash_ids: List[str],
-        trained: bool = True,  # FIXME pylint: W6001: 'typing.List' is deprecated, use 'list' instead (deprecated-typing-alias)
-    ) -> (
-        None
-    ):  # FIXME pylint: W6001: 'typing.List' is deprecated, use 'list' instead (deprecated-typing-alias)  # FIXME pylint: E0011: Unrecognized file option 'deprecated-typing-alias' (unrecognized-inline-option)
+    def set_trained_flag(self, hash_ids: List[str], trained: bool = True) -> None:
         if not hash_ids:
             logging.warning("No hash IDs provided to set 'trained' flag.")
             return
@@ -91,15 +75,7 @@ class EmailDatabase:
         result = self.db.execute(query, (x_gm_msgid,), fetch=True)
         return result[0]["trained"] if result else False
 
-    def update_mail_queue(
-        self,
-        thread_marker: str,
-        msg_ids: List[
-            int
-        ],  # FIXME pylint: W6001: 'typing.List' is deprecated, use 'list' instead (deprecated-typing-alias)
-    ) -> (
-        bool
-    ):  # FIXME pylint: W6001: 'typing.List' is deprecated, use 'list' instead (deprecated-typing-alias)  # FIXME pylint: E0011: Unrecognized file option 'deprecated-typing-alias' (unrecognized-inline-option)
+    def update_mail_queue(self, thread_marker: str, msg_ids: List[int]) -> bool:
         if not msg_ids:
             logging.error("The input parameter msg_ids must be a non-empty list of integers.")
             return False
@@ -115,17 +91,11 @@ class EmailDatabase:
             self.db.conn.commit()
             return True
         except Exception as e:
-            logging.error(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
-                f"Error updating mail queue: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
+            logging.error(f"Error updating mail queue: {e}")
             self.db.conn.rollback()
             return False
 
-    def fetch_mail_from_queue(
-        self, thread_marker: str, batch_size: int
-    ) -> Generator[  # FIXME pylint: R6007: Type `Generator[str, None, None]` has unnecessary default type args. Change it to `Generator[str]`. (unnecessary-default-type-args)  # FIXME pylint: W6001: 'typing.Generator' is deprecated, use 'collections.abc.Generator' instead (deprecated-typing-alias)
-        str, None, None
-    ]:  # FIXME pylint: R6007: Type `Generator[str, None, None]` has unnecessary default type args. Change it to `Generator[str]`. (unnecessary-default-type-args)  # FIXME pylint: W6001: 'typing.Generator' is deprecated, use 'collections.abc.Generator' instead (deprecated-typing-alias)  # FIXME pylint: E0011: Unrecognized file option 'deprecated-typing-alias' (unrecognized-inline-option)  # FIXME pylint: C0301: Line too long (128/120) (line-too-long)
+    def fetch_mail_from_queue(self, thread_marker: str, batch_size: int) -> Generator[str, None, None]:
         query = """
             SELECT x_gm_msgid
             FROM mail_que
@@ -154,14 +124,10 @@ class EmailDatabase:
             cursor = self.db.conn.cursor()
             cursor.execute(query, (msgid, thread_marker))
             affected = cursor.rowcount
-            (  # FIXME pylint: W0106: Expression "self.db.conn.commit() if affected > 0 else self.db.conn.rollback()" is assigned to nothing (expression-not-assigned)
-                self.db.conn.commit() if affected > 0 else self.db.conn.rollback()
-            )  # FIXME pylint: W0106: Expression "self.db.conn.commit() if affected > 0 else self.db.conn.rollback()" is assigned to nothing (expression-not-assigned)  # FIXME pylint: E0011: Unrecognized file option 'expression-not-assigned' (unrecognized-inline-option)
+            (self.db.conn.commit() if affected > 0 else self.db.conn.rollback())
             return affected > 0
         except Exception as e:
-            logging.error(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
-                f"Error popping from queue: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
+            logging.error(f"Error popping from queue: {e}")
             self.db.conn.rollback()
             return False
         finally:

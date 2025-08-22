@@ -68,9 +68,7 @@ def match_uid(email_uid: str, fetch_response: bytes) -> bool:
     decoded_response = fetch_response.decode()
     match = re.search(r'UID (\d+)', decoded_response)
 
-    if (
-        match
-    ):  # FIXME pylint: R1705: Unnecessary "else" after "return", remove the "else" and de-indent the code inside it (no-else-return)
+    if match:
         fetched_uid = match.group(1)  # Extract UID from the response
         return email_uid == fetched_uid  # Compare with email.uid
     else:
@@ -90,9 +88,7 @@ class Email:
         self._parse(raw_data)
         self.hash = EmailHasher.generate_sha256sum(self.text())
 
-    def _parse(
-        self, raw_data: list
-    ):  # FIXME pylint: R1260: '_parse' is too complex. The McCabe rating is 12 (too-complex)
+    def _parse(self, raw_data: list):
         """
         Parses the raw IMAP fetch response and populates the class attributes.
 
@@ -146,9 +142,7 @@ class Email:
         # Use regular expression to extract UID and X-GM-MSGID values
         match = re.search(r'X-GM-MSGID (\d+) UID (\d+)', decoded_data)
 
-        if (
-            match
-        ):  # FIXME pylint: R1705: Unnecessary "else" after "return", remove the "else" and de-indent the code inside it (no-else-return)
+        if match:
             # Return a tuple of (uid, msgid)
             return match.group(2), match.group(1)
         else:
@@ -195,35 +189,25 @@ class PostOffice:
         max_rety_delay = 300
         while not self._StopEvent.is_set():
             try:
-                logging.debug(
-                    f"Attempting to connect to IMAP server {self.url}:{self.port}."
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.debug(f"Attempting to connect to IMAP server {self.url}:{self.port}.")
                 # Check network connectivity
                 with socket.create_connection((self.url, self.port), timeout=10):
-                    logging.debug(
-                        f"Network connectivity to {self.url}:{self.port} verified."
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.debug(f"Network connectivity to {self.url}:{self.port} verified.")
 
                 # Attempt IMAP connection
                 self.srv = imaplib.IMAP4_SSL(self.url, self.port)
                 self.srv.login(self.email, self.password)
-                logging.info(
-                    f"Connected to IMAP server {self.url} on port {self.port}."
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.info(f"Connected to IMAP server {self.url} on port {self.port}.")
                 return  # Exit the loop upon successful connection
 
             except (socket.error, imaplib.IMAP4.error) as e:
-                logging.warning(
-                    f"Connection attempt failed: {e}"
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.warning(f"Connection attempt failed: {e}")
                 self.srv = None
 
             # Wait before retrying
             retry_attempts += 1
             current_delay = min(retry_delay * retry_attempts, max_rety_delay)
-            logging.info(
-                f"Retrying in {retry_delay} seconds..."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Retrying in {retry_delay} seconds...")
             time.sleep(current_delay)
 
         # If we exit due to stop_event being set
@@ -244,13 +228,9 @@ class PostOffice:
                 self.srv.close()
                 logging.info("Mailbox closed successfully.")
             else:
-                logging.warning(
-                    f"Cannot close mailbox. Current state: '{self.srv.state}'. Expected: 'SELECTED'."
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.warning(f"Cannot close mailbox. Current state: '{self.srv.state}'. Expected: 'SELECTED'.")
         except Exception as e:
-            logging.error(
-                f"Error while closing the mailbox: {e}", exc_info=True
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"Error while closing the mailbox: {e}", exc_info=True)
 
     def logout(self):
         """
@@ -260,9 +240,7 @@ class PostOffice:
         terminate the session with the IMAP server. It also logs an
         informational message indicating that the logout was successful.
         """
-        if (
-            self.srv is None
-        ):  # FIXME pylint: R1705: Unnecessary "else" after "return", remove the "else" and de-indent the code inside it (no-else-return)
+        if self.srv is None:
             logging.warning("No active IMAP connection to log out from.")
             return
         else:
@@ -270,14 +248,10 @@ class PostOffice:
                 self.srv.logout()
                 logging.info("Logged out from IMAP server.")
             except Exception as e:
-                logging.error(
-                    f"Error during logout: {e}", exc_info=True
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.error(f"Error during logout: {e}", exc_info=True)
                 return
 
-    def reconnect(
-        self,
-    ):  # FIXME pylint: R1710: Either all return statements in a function should return an expression, or none of them should. (inconsistent-return-statements)
+    def reconnect(self):
         """
         Ensure the IMAP connection is active and in the correct state.
         Reconnect and re-select the folder if necessary.
@@ -285,7 +259,7 @@ class PostOffice:
         try:
             # Check if the connection is active
             if self.srv is None or self.srv.state not in ['SELECTED', 'AUTH']:
-                logging.warning(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.warning(
                     f"IMAP connection is in state '{self.srv.state if self.srv else 'None'}'. Reconnecting..."
                 )
                 self.connect()
@@ -293,14 +267,10 @@ class PostOffice:
             # Check if the folder is selected
             if self.srv.state != 'SELECTED':
                 self.srv.select(self.mailbox)  # Ensure the correct folder is selected
-                logging.info(
-                    f"Folder '{self.mailbox}' selected successfully."
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.info(f"Folder '{self.mailbox}' selected successfully.")
                 return True
         except imaplib.IMAP4.error as e:
-            logging.error(
-                f"Failed to reconnect or select folder '{self.mailbox}': {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"Failed to reconnect or select folder '{self.mailbox}': {e}")
             return False
 
     def select_box(self, readonly: bool = True):
@@ -319,19 +289,11 @@ class PostOffice:
         """
         try:
             self.srv.select(self.mailbox, readonly)  # DO NOT flag mail as read.
-            logging.debug(
-                f"Successfully connected to mailbox '{self.mailbox}'."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.debug(f"Successfully connected to mailbox '{self.mailbox}'.")
         except IMAP4.error as e:
-            logging.error(
-                f"IMAP connection error selecting mailbox: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"IMAP connection error selecting mailbox: {e}")
 
-    def fetch_batch(
-        self, x_gm_msgids: list[int], chunk_size: int = 100
-    ) -> Generator[
-        'Email', None, None
-    ]:  # FIXME pylint: R1260: 'fetch_batch' is too complex. The McCabe rating is 15 (too-complex)  # FIXME pylint: R6007: Type `Generator['Email', None, None]` has unnecessary default type args. Change it to `Generator['Email']`. (unnecessary-default-type-args)  # FIXME pylint: W6001: 'typing.Generator' is deprecated, use 'collections.abc.Generator' instead (deprecated-typing-alias)
+    def fetch_batch(self, x_gm_msgids: list[int], chunk_size: int = 100) -> Generator['Email', None, None]:
         """
         Fetch emails in bulk based on provided X-GM-MSGID list, with chunking for large lists.
 
@@ -343,15 +305,11 @@ class PostOffice:
             Email: An Email object containing the fetched email data.
         """
         total_emails = len(x_gm_msgids)
-        logging.info(
-            f"Fetching {total_emails} emails in chunks of {chunk_size}."
-        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+        logging.info(f"Fetching {total_emails} emails in chunks of {chunk_size}.")
 
         start_time = time.time()
         index = 0
-        for chunk_start in range(
-            0, total_emails, chunk_size
-        ):  # FIXME pylint: R1702: Too many nested blocks (8/5) (too-many-nested-blocks)
+        for chunk_start in range(0, total_emails, chunk_size):
             chunk = x_gm_msgids[chunk_start : chunk_start + chunk_size]
             uid_map = {}
 
@@ -368,18 +326,12 @@ class PostOffice:
                         index += 1
 
                 except Exception as e:
-                    logging.error(
-                        f"Error searching for X-GM-MSGID {msg_id}: {e}"
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.error(f"Error searching for X-GM-MSGID {msg_id}: {e}")
 
-            logging.info(
-                f"Fetched {len(uid_map)} UIDs for current chunk."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Fetched {len(uid_map)} UIDs for current chunk.")
 
             # Step 2: Fetch email data using UIDs
-            logging.info(
-                f"Fetching email data for {len(uid_map)} UIDs."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Fetching email data for {len(uid_map)} UIDs.")
             if uid_map:
                 try:
                     uids_to_fetch = ','.join(uid_map.keys())
@@ -406,9 +358,7 @@ class PostOffice:
                                         break
                             yield email_obj
                 except Exception as e:
-                    logging.error(
-                        f"Error fetching email data for UIDs: {e}"
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.error(f"Error fetching email data for UIDs: {e}")
 
     def search_with_retry(self, x_gm_msgid: int) -> str | None:
         """
@@ -431,22 +381,14 @@ class PostOffice:
                 status, data = self.srv.uid('SEARCH', None, f'X-GM-MSGID {x_gm_msgid}')
                 if status == "OK" and data:
                     if data[0] == b'':
-                        logging.debug(
-                            f"Email with X-GM-MSGID {x_gm_msgid} not found."
-                        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                        logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} not found.")
                         return None
-                    logging.debug(
-                        f"Email with X-GM-MSGID {x_gm_msgid} found."
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.debug(f"Email with X-GM-MSGID {x_gm_msgid} found.")
                     return data
             except Exception as e:
-                logging.warning(
-                    f"Search failed for X-GM-MSGID {x_gm_msgid}: {e}. Attempt {count + 1}"
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.warning(f"Search failed for X-GM-MSGID {x_gm_msgid}: {e}. Attempt {count + 1}")
 
-            logging.debug(
-                f"Retrying search for X-GM-MSGID {x_gm_msgid}."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.debug(f"Retrying search for X-GM-MSGID {x_gm_msgid}.")
             count += 1
 
     def fetch_single_email(self, x_gm_msgid: int) -> Email | None:
@@ -459,15 +401,11 @@ class PostOffice:
         Returns:
             Email | None: The fetched Email object if successful, otherwise None.
         """
-        logging.debug(
-            f"Fetching email with X-GM-MSGID {x_gm_msgid}."
-        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+        logging.debug(f"Fetching email with X-GM-MSGID {x_gm_msgid}.")
         retry_count = 3
 
         for attempt in range(retry_count):
-            logging.debug(
-                f"Attempt {attempt + 1}/{retry_count}: Fetching email with X-GM-MSGID {x_gm_msgid}."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.debug(f"Attempt {attempt + 1}/{retry_count}: Fetching email with X-GM-MSGID {x_gm_msgid}.")
             try:
                 # Ensure connection is active
                 self.check_imap_state()
@@ -480,36 +418,26 @@ class PostOffice:
                 # Fetch the email using its UID
                 result, raw_imap_msg_data = self.srv.uid('FETCH', uid[0].split()[0], "(RFC822)")
                 if result == "OK" and raw_imap_msg_data and raw_imap_msg_data[0]:
-                    logging.debug(
-                        f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}."
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.debug(f"Successfully fetched email with X-GM-MSGID {x_gm_msgid}.")
 
                     # Validate raw message data
                     if not isinstance(raw_imap_msg_data[0], tuple):
-                        logging.error(
-                            f"Invalid data format for email with X-GM-MSGID {x_gm_msgid}."
-                        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                        logging.error(f"Invalid data format for email with X-GM-MSGID {x_gm_msgid}.")
                         return None
 
                     # Create and return the Email object
                     email_obj = Email(raw_imap_msg_data[0])
-                    email_obj.X_GM_MSGID = x_gm_msgid  # FIXME pylint: W0201: Attribute 'X_GM_MSGID' defined outside __init__ (attribute-defined-outside-init)
+                    email_obj.X_GM_MSGID = x_gm_msgid
                     return email_obj
             except Exception as e:
-                logging.error(
-                    f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.error(f"Error during email fetch attempt {attempt + 1}: {e}", exc_info=True)
             time.sleep(2)
 
-        logging.debug(
-            f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts."
-        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+        logging.debug(f"Failed to fetch email with X-GM-MSGID {x_gm_msgid} after {retry_count} attempts.")
         self.database.mark_email_as_failed(x_gm_msgid)
         return None
 
-    def move(
-        self, uids: list[bytes], destination_folder: str
-    ):  # TODO: refactor to move in bulk  # FIXME pylint: W9015: "uids" missing in parameter documentation (missing-param-doc)  # FIXME pylint: W9017: "x_gm_msgid" differing in parameter documentation (differing-param-doc)  # FIXME pylint: W9018: "x_gm_msgid" differing in parameter type documentation (differing-type-doc)  # FIXME pylint: W9008: Redundant returns documentation (redundant-returns-doc)
+    def move(self, uids: list[bytes], destination_folder: str):
         """
         Args:
             destination_folder (str): The name of the destination folder where the email should be moved.
@@ -522,9 +450,7 @@ class PostOffice:
         Raises:
             Exception: If an error occurs during the process of moving the email.
         """
-        logging.info(
-            f"Moving '{len(uids)}' emails from '{self.mailbox}' to '{destination_folder}'."
-        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+        logging.info(f"Moving '{len(uids)}' emails from '{self.mailbox}' to '{destination_folder}'.")
         self.check_imap_state(readonly=False)
 
         uid_str = ",".join(uids)
@@ -532,24 +458,16 @@ class PostOffice:
             # Write a check for cap support
             status, _ = self.srv.uid('COPY', uid_str, destination_folder)
             if status != "OK":
-                raise Exception(
-                    f"Failed to copy emails to '{destination_folder}'."
-                )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
-            logging.debug(
-                f"Emails moved to '{destination_folder}' successfully."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                raise Exception(f"Failed to copy emails to '{destination_folder}'.")
+            logging.debug(f"Emails moved to '{destination_folder}' successfully.")
 
             status, _ = self.srv.uid("STORE", uid_str, "+FLAGS", "(\\Deleted)")
             if status != "OK":
-                raise Exception(
-                    "Failed to mark emails as deleted."
-                )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
+                raise Exception("Failed to mark emails as deleted.")
 
             status, _ = self.srv.expunge()
             if status != "OK":
-                raise Exception(
-                    "Failed to expunge emails."
-                )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
+                raise Exception("Failed to expunge emails.")
 
         finally:
             self.srv.close()
@@ -564,14 +482,12 @@ class PostOffice:
         - x_gm_msgids: A list of email X-GM-MSGIDs as strings.
         """
         try:
-            logging.debug(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.debug(
                 f"Starting bulk move of {len(x_gm_msgids)} emails from '{self.mailbox}' to '{destination_folder}'."
             )
 
             # Select source folder
-            self.select_box(
-                self.mailbox, readonly=False
-            )  # FIXME pylint: E1124: Argument 'readonly' passed by position and keyword in method call (redundant-keyword-arg)
+            self.select_box(self.mailbox, readonly=False)
 
             email_ids = []
             for x_gm_msgid in x_gm_msgids:
@@ -579,13 +495,9 @@ class PostOffice:
                 result, data = self.srv.uid('SEARCH', None, f'X-GM-MSGID {x_gm_msgid}')
                 if result == "OK" and data and data[0]:
                     email_ids.append(data[0].split()[0])
-                    logging.debug(
-                        f"Found email ID '{data[0].split()[0]}' for X-GM-MSGID '{x_gm_msgid}'."
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.debug(f"Found email ID '{data[0].split()[0]}' for X-GM-MSGID '{x_gm_msgid}'.")
                 else:
-                    logging.debug(
-                        f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'."
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.debug(f"Email with X-GM-MSGID '{x_gm_msgid}' not found in '{self.mailbox}'.")
 
             if not email_ids:
                 logging.warning("No emails found for the provided X-GM-MSGIDs. Aborting bulk move.")
@@ -598,34 +510,26 @@ class PostOffice:
             result, copy_response = self.srv.uid('COPY', email_ids_str, destination_folder)
             if result != "OK":
                 raise IMAP4.error(f"Failed to copy emails to '{destination_folder}': {copy_response}")
-            logging.debug(
-                f"Copied {len(email_ids)} emails to '{destination_folder}' successfully."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.debug(f"Copied {len(email_ids)} emails to '{destination_folder}' successfully.")
 
             # Mark emails as deleted in source folder
             result, store_response = self.srv.uid("STORE", email_ids_str, "+FLAGS", "(\\Deleted)")
             if result != "OK":
                 raise IMAP4.error(f"Failed to mark emails as deleted: {store_response}")
-            logging.debug(
-                f"Marked {len(email_ids)} emails as deleted in '{self.mailbox}'."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.debug(f"Marked {len(email_ids)} emails as deleted in '{self.mailbox}'.")
 
             # Expunge to permanently delete emails
             self.srv.expunge()
-            logging.info(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(
                 f"Bulk move completed: {len(email_ids)} emails moved from '{self.mailbox}' to '{destination_folder}'."
             )
 
         except IMAP4.error as e:
-            logging.error(
-                f"IMAP error during bulk move: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"IMAP error during bulk move: {e}")
             raise
 
         except Exception as e:
-            logging.error(
-                f"Unexpected error during bulk move: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"Unexpected error during bulk move: {e}")
             raise
 
         finally:
@@ -652,9 +556,7 @@ class PostOffice:
             status, capabilities = self.srv.capability()
             if status == "OK":
                 self.capabilities = capabilities  # Save capabilities as an attribute
-                logging.debug(
-                    f"Server Capabilities: {capabilities}"
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.debug(f"Server Capabilities: {capabilities}")
                 if b"UIDPLUS" in capabilities:
                     logging.info("The server supports UIDPLUS (RFC 4315).")
                     uidplus_supported = True
@@ -668,13 +570,9 @@ class PostOffice:
             return uidplus_supported
 
         except imaplib.IMAP4.error as e:
-            logging.critical(
-                f"IMAP4 error: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.critical(f"IMAP4 error: {e}")
         except Exception as e:
-            logging.critical(
-                f"Unexpected error: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.critical(f"Unexpected error: {e}")
         return False
 
     def total_emails(self, folder):
@@ -696,18 +594,14 @@ class PostOffice:
 
             # Extract the numeric value for total messages using regex
             match = re.search(r'MESSAGES (\d+)', status[1][0].decode())
-            if (
-                match
-            ):  # FIXME pylint: R1705: Unnecessary "else" after "return", remove the "else" and de-indent the code inside it (no-else-return)
+            if match:
                 num_emails = int(match.group(1))  # Extracted number from regex
                 return num_emails
             else:
                 raise ValueError("Couldn't extract the number of messages from the server response.")
 
         except Exception as e:
-            logging.error(
-                f"An error occurred while fetching the total emails in '{folder}': {e}", exc_info=True
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"An error occurred while fetching the total emails in '{folder}': {e}", exc_info=True)
             return 0  # Return 0 if there is an error
 
     def keep_alive(self):
@@ -723,14 +617,10 @@ class PostOffice:
             self.srv.noop()
             logging.debug("Sent NOOP to keep the IMAP connection alive.")
         except imaplib.IMAP4.abort as e:
-            logging.warning(
-                f"IMAP connection aborted: {e}. Reconnecting..."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.warning(f"IMAP connection aborted: {e}. Reconnecting...")
             self.connect()  # Reconnect if the connection is lost
 
-    def fetch_X_GM_MSGID(
-        self, batch_size: int = 100
-    ):  # FIXME pylint: W9017: "thread_marker" differing in parameter documentation (differing-param-doc)  # FIXME pylint: W9018: "thread_marker" differing in parameter type documentation (differing-type-doc)
+    def fetch_X_GM_MSGID(self, batch_size: int = 100):
         """
         Fetch batches of X-GM-MSGIDs from the mailbox and yield them as batches.
 
@@ -749,14 +639,10 @@ class PostOffice:
 
             ids = data[0].split()
             if len(ids) == 0:
-                logging.debug(
-                    f"No emails found in {self.mailbox}."
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.debug(f"No emails found in {self.mailbox}.")
                 return
 
-            logging.info(
-                f"Fetching {len(ids)} IDs from '{self.mailbox}'"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Fetching {len(ids)} IDs from '{self.mailbox}'")
             start_time = time.time()
 
             # Process emails in batches
@@ -787,14 +673,10 @@ class PostOffice:
                     logging.info("Stop signal received. shutting down PostOffice.")
                     break
 
-            logging.info(
-                f"Finished processing {len(ids)} IDs from {self.mailbox}."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Finished processing {len(ids)} IDs from {self.mailbox}.")
 
         except Exception as e:
-            logging.error(
-                f"Error fetching X-GM-MSGIDs: {e}", exc_info=True
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"Error fetching X-GM-MSGIDs: {e}", exc_info=True)
 
     def check_imap_state(self, readonly: bool = True):
         """
@@ -821,38 +703,26 @@ class PostOffice:
             # If the connection is in AUTH state, select the mailbox if needed
             elif self.srv.state == "AUTH":
                 if self.mailbox:
-                    logging.debug(
-                        f"IMAP connection in AUTH state. Selecting mailbox '{self.mailbox}'..."
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.debug(f"IMAP connection in AUTH state. Selecting mailbox '{self.mailbox}'...")
                     status, _ = self.srv.select(self.mailbox, readonly=readonly)  # Select the mailbox
                     if status != "OK":
-                        raise Exception(
-                            f"Failed to select mailbox '{self.mailbox}'."
-                        )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
+                        raise Exception(f"Failed to select mailbox '{self.mailbox}'.")
                 else:
                     logging.debug("IMAP connection in AUTH state. No mailbox specified to select.")
 
             # If the connection is already in SELECTED state, ensure the correct mailbox is selected
             elif self.srv.state == "SELECTED" and self.mailbox:
-                logging.debug(
-                    f"Ensuring the correct mailbox is selected: {self.mailbox}"
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.debug(f"Ensuring the correct mailbox is selected: {self.mailbox}")
                 status, _ = self.srv.select(self.mailbox)  # Re-select the desired mailbox directly
                 if status != "OK":
-                    raise Exception(
-                        f"Failed to ensure mailbox '{self.mailbox}' is selected."
-                    )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
+                    raise Exception(f"Failed to ensure mailbox '{self.mailbox}' is selected.")
 
             # If none of the above states, raise an error as the connection is in an unexpected state
             else:
-                raise Exception(
-                    f"Unexpected IMAP state: {self.srv.state}"
-                )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
+                raise Exception(f"Unexpected IMAP state: {self.srv.state}")
 
         except Exception as e:
-            logging.error(
-                f"Error ensuring IMAP state: {e}", exc_info=True
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"Error ensuring IMAP state: {e}", exc_info=True)
             raise
 
     def save(self, path: str):
@@ -869,27 +739,17 @@ class PostOffice:
 
             self.connect()
             self.select_box(readonly=True)
-            if (
-                status != "OK"
-            ):  # FIXME pylint: E0601: Using variable 'status' before assignment (used-before-assignment)
-                raise Exception(
-                    f"Failed to select mailbox: {self.mailbox}"
-                )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
+            if status != "OK":
+                raise Exception(f"Failed to select mailbox: {self.mailbox}")
 
             # Fetch all email IDs in the mailbox
-            logging.info(
-                f"Fetching email IDs from mailbox: {self.mailbox}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Fetching email IDs from mailbox: {self.mailbox}")
             status, email_ids = self.srv.uid('SEARCH', None, "ALL")
             if status != "OK":
-                raise Exception(
-                    "Failed to fetch email IDs."
-                )  # FIXME pylint: W0719: Raising too general exception: Exception (broad-exception-raised)
+                raise Exception("Failed to fetch email IDs.")
 
             email_ids = email_ids[0].split()
-            logging.info(
-                f"Found {len(email_ids)} emails in mailbox '{self.mailbox}'."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Found {len(email_ids)} emails in mailbox '{self.mailbox}'.")
 
             # Fetch and save each email
             for idx, email_id in enumerate(email_ids, start=1):
@@ -900,9 +760,7 @@ class PostOffice:
                 # Fetch the email by ID
                 status, data = self.srv.uid('FETCH', email_id, "(RFC822)")
                 if status != "OK":
-                    logging.warning(
-                        f"Failed to fetch email ID {email_id}. Skipping."
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    logging.warning(f"Failed to fetch email ID {email_id}. Skipping.")
                     continue
 
                 # Parse the email content
@@ -917,20 +775,14 @@ class PostOffice:
                 email_path = os.path.join(path, filename)
                 with open(email_path, "wb") as f:
                     f.write(raw_email)
-                logging.info(
-                    f"Saved email {idx}: {email_path}"
-                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                logging.info(f"Saved email {idx}: {email_path}")
 
                 # Optional: You could also store metadata like the email ID in a database here if needed
 
-            logging.info(
-                f"Finished saving {len(email_ids)} emails from '{self.mailbox}' to {path}."
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.info(f"Finished saving {len(email_ids)} emails from '{self.mailbox}' to {path}.")
 
         except Exception as e:
-            logging.error(
-                f"An error occurred during the email save operation: {e}", exc_info=True
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"An error occurred during the email save operation: {e}", exc_info=True)
 
         finally:
             self.close()
@@ -950,18 +802,14 @@ class PostOffice:
 
             # Send a NOOP command to verify the connection
             status, _ = self.srv.noop()
-            if (
-                status == "OK"
-            ):  # FIXME pylint: R1705: Unnecessary "else" after "return", remove the "else" and de-indent the code inside it (no-else-return)
+            if status == "OK":
                 logging.info("Socket is alive.")
                 return True
             else:
                 logging.warning("Socket is not responding.")
                 return False
         except (socket.error, imaplib.IMAP4.error) as e:
-            logging.error(
-                f"Socket error detected: {e}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            logging.error(f"Socket error detected: {e}")
             return False
 
 

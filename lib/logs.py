@@ -29,18 +29,12 @@ class LogRotation(threading.Thread):
             try:
                 if os.path.exists(log_file):
                     file_size = os.path.getsize(log_file)
-                    logging.debug(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
-                        f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}"
-                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
+                    logging.debug(f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}")
                     if file_size >= config.MAX_SIZE:
-                        logging.warning(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
-                            f"Log file size exceeded threshold: {log_file}"
-                        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
+                        logging.warning(f"Log file size exceeded threshold: {log_file}")
                         self.rotate()
                 else:
-                    with open(  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)
-                        log_file, 'w'
-                    ) as log_file:  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)  # FIXME pylint: E0011: Unrecognized file option 'unspecified-encoding' (unrecognized-inline-option)
+                    with open(log_file, 'w') as log_file:
                         log_file.write("")  # Initialize an empty log file
             except Exception as e:
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
@@ -79,9 +73,7 @@ class LogRotation(threading.Thread):
                         shutil.copyfileobj(f_in, f_out)
                 logging.info("Archived current log file as daily log: %s", daily_log)
                 # Clear the current log file
-                open(  # FIXME pylint: R1732: Consider using 'with' for resource-allocating operations (consider-using-with)  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)
-                    self.log_file, 'w'
-                ).close()  # FIXME pylint: R1732: Consider using 'with' for resource-allocating operations (consider-using-with)  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)  # FIXME pylint: E0011: Unrecognized file option 'unspecified-encoding' (unrecognized-inline-option)  # FIXME pylint: C0301: Line too long (123/120) (line-too-long)
+                open(self.log_file, 'w').close()
 
             # Manage weekly and monthly logs
             if now.weekday() == 0:  # If it's Monday, create a weekly log

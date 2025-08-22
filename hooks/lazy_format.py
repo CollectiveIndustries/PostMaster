@@ -49,13 +49,28 @@ class LoggingFstringTransformer(cst.CSTTransformer):
 
 def fix_file(path: Path):
     source = path.read_text(encoding="utf-8")
-    tree = cst.parse_module(source)
+    try:
+        tree = cst.parse_module(source)
+    except cst.ParserSyntaxError as e:
+        print(f"Skipping {path}: {e}")
+        return
     transformer = LoggingFstringTransformer()
     new_tree = tree.visit(transformer)
     new_code = new_tree.code
     if new_code != source:
         path.write_text(new_code, encoding="utf-8")
         print(f"Fixed: {path}")
+
+
+# def fix_file(path: Path):
+#    source = path.read_text(encoding="utf-8")
+#    tree = cst.parse_module(source)
+#    transformer = LoggingFstringTransformer()
+#    new_tree = tree.visit(transformer)
+#    new_code = new_tree.code
+#    if new_code != source:
+#        path.write_text(new_code, encoding="utf-8")
+#        print(f"Fixed: {path}")
 
 
 def main():

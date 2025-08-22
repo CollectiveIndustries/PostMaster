@@ -34,7 +34,7 @@ def log_progress(index, total, start_time, stage="Processing"):
         formatted_etc = f"{hours:02}:{minutes:02}:{seconds:02}"
 
     # Log the progress and estimated time to completion with the stage
-    logging.info(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
+    logging.info(
         f"[{stage}] Processed {index}/{total} items "
         f"({index / total:.2%} complete). "
         f"Estimated time till completion: {formatted_etc}"
@@ -53,7 +53,7 @@ def interruptible_sleep(duration, stop_event):
         elapsed += interval
 
 
-def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> dict:  # type: ignore  # FIXME pylint: E0602: Undefined variable 'Email' (undefined-variable)  # FIXME pylint: E0011: Unrecognized file option 'undefined-variable' (unrecognized-inline-option)
+def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> dict:
     """
     Sorts email objects into lists based on their classification attributes.
 
