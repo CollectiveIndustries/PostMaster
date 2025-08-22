@@ -1,11 +1,13 @@
-import threading
+import gzip
 import logging
 import os
 import shutil
-import gzip
+import threading
 from datetime import datetime
-from .utils import interruptible_sleep
+
 from .config import config
+from .utils import interruptible_sleep
+
 
 class LogRotation(threading.Thread):
     def __init__(self, stop_event: threading.Event):
@@ -38,7 +40,7 @@ class LogRotation(threading.Thread):
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
             interruptible_sleep(config.CHECK_INTERVAL, self.stop_event)
         logging.info("Log rotation thread stopped.")
-        
+
     def start(self):
         logging.info("Starting LogRotationThread...")
         super().start()
@@ -103,14 +105,11 @@ class LogRotation(threading.Thread):
             retention_count (int): The maximum number of logs to retain for the period.
         """
         try:
-            all_logs = sorted([
-                f for f in os.listdir(".")
-                if f.startswith(log_file_base) and period in f
-            ])
+            all_logs = sorted([f for f in os.listdir(".") if f.startswith(log_file_base) and period in f])
 
             # Retain only the most recent logs up to retention_count
             if len(all_logs) > retention_count:
-                for old_log in all_logs[:len(all_logs) - retention_count]:
+                for old_log in all_logs[: len(all_logs) - retention_count]:
                     os.remove(old_log)
                     logging.info("Removed old log file: %s", old_log)
 

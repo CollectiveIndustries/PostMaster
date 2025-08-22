@@ -1,4 +1,5 @@
 import argparse
+
 from CollectiveCore.collective_config import CollectiveConfig
 
 
@@ -57,21 +58,20 @@ class Conf:
         """Convert human-readable size string to bytes (e.g., '2g', '500m', '128k')."""
         size_str = size_str.strip().lower()
         if size_str.endswith("g"):
-            return int(float(size_str[:-1]) * 1024 ** 3)
+            return int(float(size_str[:-1]) * 1024**3)
         elif size_str.endswith("m"):
-            return int(float(size_str[:-1]) * 1024 ** 2)
+            return int(float(size_str[:-1]) * 1024**2)
         elif size_str.endswith("k"):
             return int(float(size_str[:-1]) * 1024)
         else:
             # Assume bytes if no unit
             return int(size_str)
 
+
 # CLI helper
 def parse_args():
     parser = argparse.ArgumentParser(description="Spam Vanquisher Configuration")
-    parser.add_argument(
-        "--config", type=str, help="Path to the config YAML file", default=None
-    )
+    parser.add_argument("--config", type=str, help="Path to the config YAML file", default=None)
     return parser.parse_args()
 
 

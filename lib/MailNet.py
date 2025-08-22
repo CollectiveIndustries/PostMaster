@@ -1,15 +1,18 @@
-import tensorflow as tf
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.models import Sequential, load_model  # type: ignore
-from tensorflow.keras.layers import Dense, Embedding, LSTM, Dropout, Input # type: ignore
-from tensorflow.keras.preprocessing.text import Tokenizer # type: ignore
-from tensorflow.keras.preprocessing.sequence import pad_sequences # type: ignore
-import pickle
 import logging
 import os
+import pickle
 import threading
-from .post import Email
+
+import tensorflow as tf
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Embedding, Input  # type: ignore
+from tensorflow.keras.models import Sequential, load_model  # type: ignore
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.sequence import pad_sequences  # type: ignore
+from tensorflow.keras.preprocessing.text import Tokenizer  # type: ignore
+
 from .config import config
+from .post import Email
+
 
 class MailNet:
     def __init__(self, max_vocab_size: int = 10000, max_sequence_length: int = 300) -> None:
@@ -38,9 +41,7 @@ class MailNet:
         sequences = self.tokenizer.texts_to_sequences(texts)
         if not sequences or all(len(seq) == 0 for seq in sequences):
             raise ValueError("Tokenization failed. Sequences are empty.")
-        padded_sequences = pad_sequences(
-            sequences, maxlen=self.max_sequence_length, padding='post', truncating='post'
-        )
+        padded_sequences = pad_sequences(sequences, maxlen=self.max_sequence_length, padding='post', truncating='post')
         logging.debug(f"First 3 padded sequences: {padded_sequences[:3]}")
         return padded_sequences
 
@@ -61,7 +62,8 @@ class MailNet:
             if not self.tokenizer.word_index:
                 self.fit_tokenizer(email_lst)
             valid_data = [
-                (email, label) for email, label in zip(email_lst, labels)
+                (email, label)
+                for email, label in zip(email_lst, labels)
                 if all(getattr(email, attr, None) for attr in ['subject', 'sender', 'recipient', 'payload'])
             ]
             if not valid_data:
@@ -74,16 +76,8 @@ class MailNet:
 
             if self.model is None:
                 self.model = self._create_model()
-            early_stopping = tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss', patience=3, restore_best_weights=True
-            )
-            self.model.fit(
-                X, y,
-                epochs=epochs,
-                batch_size=batch_size,
-                validation_split=0.2,
-                callbacks=[early_stopping]
-            )
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+            self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping])
 
     def classify_emails(self, emails: list[Email]) -> None:
         """
@@ -92,20 +86,20 @@ class MailNet:
         with self.model_lock:
             if not self.model:
                 raise ValueError("Model is not trained or loaded.")
-    
+
             # Preprocess data for all emails
             email_texts = [email.text() for email in emails]
             X = self.preprocess_data(email_texts)
-    
+
             # Debug: Check preprocessed data
             logging.debug(f"Preprocessed data sample: {X[:5]}")
-    
+
             # Predict classifications
             predictions = self.model.predict(X)
-    
+
             # Debug: Check predictions
             logging.debug(f"Predictions: {predictions[:10]}")
-    
+
             # Update class_id for each email
             for email, prediction in zip(emails, predictions):
                 email.class_id = 1 if prediction > 0.5 else 0
@@ -141,17 +135,21 @@ class MailNet:
             self.tokenizer = Tokenizer(num_words=self.max_vocab_size, oov_token="<OOV>")
             with open(tokenizer_path, "wb") as f:
                 pickle.dump(self.tokenizer, f)
-            logging.info(f"New tokenizer created and saved to '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}")
+            logging.info(
+                f"New tokenizer created and saved to '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}"
+            )
 
     def _create_model(self) -> Sequential:
         """Define and return a new TensorFlow model."""
-        model = Sequential([
-            Input(shape=(self.max_sequence_length,)),
-            Embedding(self.max_vocab_size, 128),
-            LSTM(64, return_sequences=False),
-            Dropout(0.3),
-            Dense(1, activation='sigmoid')
-        ])
+        model = Sequential(
+            [
+                Input(shape=(self.max_sequence_length,)),
+                Embedding(self.max_vocab_size, 128),
+                LSTM(64, return_sequences=False),
+                Dropout(0.3),
+                Dense(1, activation='sigmoid'),
+            ]
+        )
         model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
         return model
 
@@ -160,8 +158,10 @@ class MailNet:
         if self.model:
             self.model = None
             from keras import backend as K
+
             K.clear_session()
             import gc
+
             gc.collect()
             logging.info("Model unloaded.")
         else:

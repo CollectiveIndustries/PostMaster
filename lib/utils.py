@@ -1,8 +1,10 @@
 from __future__ import annotations  # Allows forward declarations
+
 import logging
 import time
 
 from .config import config
+
 
 def log_progress(index, total, start_time, stage="Processing"):
     """
@@ -37,7 +39,8 @@ def log_progress(index, total, start_time, stage="Processing"):
         f"({index / total:.2%} complete). "
         f"Estimated time till completion: {formatted_etc}"
     )
-    
+
+
 def interruptible_sleep(duration, stop_event):
     """Sleeps for the given duration in small intervals, allowing interruption."""
     interval = 0.1  # Check the stop_event every 0.1 seconds
@@ -49,7 +52,8 @@ def interruptible_sleep(duration, stop_event):
         time.sleep(interval)
         elapsed += interval
 
-def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> dict: # type: ignore
+
+def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> dict:  # type: ignore
     """
     Sorts email objects into lists based on their classification attributes.
 
@@ -62,7 +66,7 @@ def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> di
     """
 
     classification_map = {int(k): v for k, v in classification_map.items()}
-    
+
     # Initialize the result dictionary with empty lists for each folder_name
     sorted_emails = {folder_name: [] for folder_name in classification_map.values()}
     sorted_emails[config.UNSORTED] = []  # Add a default folder for unmatched emails

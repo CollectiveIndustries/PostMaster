@@ -10,19 +10,22 @@ Classes:
 Functions:
     split_batches: Splits a total number of items into chunks of a specified batch size.
 """
-import pickle
-import threading
+
+import gzip
 import logging
 import os
+import pickle
 import shutil
-import gzip
-from datetime import datetime
+import threading
 import time
-from .post import PostOffice, Email
+from datetime import datetime
+
+from .config import config
 from .database import EmailDatabase
 from .MailNet import MailNet
+from .post import Email, PostOffice
 from .utils import interruptible_sleep, log_progress, sort_emails_by_folder
-from .config import config
+
 
 def split_batches(total: int, batch_size: int):
     """
@@ -38,6 +41,7 @@ def split_batches(total: int, batch_size: int):
     for start in range(0, total, batch_size):
         end = min(start + batch_size, total)
         yield start, end
+
 
 class MultiEventHandler:
     def __init__(self, events):
@@ -55,8 +59,17 @@ class MultiEventHandler:
         # Reset all events (if necessary)
         for event in self.events:
             event.clear()
+
+
 class ThreadBase(threading.Thread):
-    def __init__(self, name: str, mailbox: str | tuple[str, str, int], stop_event: threading.Event, barrier: threading.Barrier, batch_size: int):
+    def __init__(
+        self,
+        name: str,
+        mailbox: str | tuple[str, str, int],
+        stop_event: threading.Event,
+        barrier: threading.Barrier,
+        batch_size: int,
+    ):
         """
         Base class for threads that manage mail processing tasks.
 
@@ -126,15 +139,16 @@ class ThreadBase(threading.Thread):
         except threading.BrokenBarrierError:
             print(f"{self.name} barrier broken, exiting.")
 
+
 class TrainerThread(ThreadBase):
     def __init__(
-        self, 
+        self,
         name: str,
         mailbox: tuple[str, str, int],  # Tuple with (source, destination, class_id)
-        stop_event: threading.Event, 
-        barrier: threading.Barrier, 
+        stop_event: threading.Event,
+        barrier: threading.Barrier,
         model_lock: threading.RLock,
-        batch_size: int
+        batch_size: int,
     ):
         super().__init__(name, mailbox, stop_event, barrier, batch_size)
         self.src, self.dst, self.class_id = mailbox
@@ -283,8 +297,11 @@ class TrainerThread(ThreadBase):
         else:
             logging.warning(f"No emails were successfully processed in this batch.")
 
+
 class ClassificationThread(ThreadBase):
-    def __init__(self, name: str, mailbox: str, stop_event: threading.Event, barrier: threading.Barrier, batch_size: int):
+    def __init__(
+        self, name: str, mailbox: str, stop_event: threading.Event, barrier: threading.Barrier, batch_size: int
+    ):
         """
         Thread for classifying emails in a mailbox.
 
@@ -415,8 +432,9 @@ class ClassificationThread(ThreadBase):
                     hash_id=email.hash,  # Assuming uid is bytes
                     source_folder=self.mailbox,
                     destination_folder=folder_name,
-                    status="Processed"
+                    status="Processed",
                 )
+
 
 class LogRotation(threading.Thread):
     def __init__(self, stop_event: threading.Event):
@@ -514,14 +532,11 @@ class LogRotation(threading.Thread):
             retention_count (int): The maximum number of logs to retain for the period.
         """
         try:
-            all_logs = sorted([
-                f for f in os.listdir(".")
-                if f.startswith(log_file_base) and period in f
-            ])
+            all_logs = sorted([f for f in os.listdir(".") if f.startswith(log_file_base) and period in f])
 
             # Retain only the most recent logs up to retention_count
             if len(all_logs) > retention_count:
-                for old_log in all_logs[:len(all_logs) - retention_count]:
+                for old_log in all_logs[: len(all_logs) - retention_count]:
                     os.remove(old_log)
                     logging.info("Removed old log file: %s", old_log)
 

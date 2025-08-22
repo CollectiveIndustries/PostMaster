@@ -8,6 +8,7 @@ repos:
 #        types: [python]
 #        stages: [pre-commit]
 
+  # Auto-fix hooks first
   - repo: https://github.com/ikamensh/flynt
     rev: 1.0.6
     hooks:
@@ -15,7 +16,7 @@ repos:
         name: Normalize non-logging strings to f-strings
         entry: flynt
         language: python
-        language_version: python3.12
+        language_version: python3.13
         types: [python]
         args:
           - --exclude=.venv
@@ -25,7 +26,7 @@ repos:
     rev: v5.10.1
     hooks:
       - id: isort
-        language_version: python3.12
+        language_version: python3.13
         exclude: ^\.venv/
         args:
           - --line-length=120
@@ -38,18 +39,38 @@ repos:
     rev: 25.1.0
     hooks:
       - id: black
-        language_version: python3.12
+        language_version: python3.13
         exclude: ^\.venv/
         args:
           - --line-length=120
           - --skip-string-normalization
           - --skip-magic-trailing-comma
 
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+
+  # Local auto-commit fixes hook
+  - repo: local
+    hooks:
+      - id: auto-commit-fixes
+        name: Auto-commit formatting/sorting fixes
+        entry: hooks/auto_commit_fixes.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # Blocking hooks
   - repo: https://github.com/pycqa/flake8
     rev: 7.3.0
     hooks:
       - id: flake8
-        language_version: python3.12
+        language_version: python3.13
         exclude: ^\.venv/
         args:
           - --max-line-length=120
@@ -61,7 +82,7 @@ repos:
       - id: pylint
         name: Run pylint
         entry: .venv/bin/pylint
-        language_version: python3.12
+        language_version: python3.13
         types: [python]
         exclude: ^\.venv/
         args: [--rcfile=.pylintrc, --disable=line-too-long]
@@ -74,27 +95,12 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        language_version: python3.12
+        language_version: python3.13
         args: ['--baseline', '.secrets.baseline']
 
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
-    hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-      - id: check-json
-      - id: check-added-large-files
-
+  # Tests run last
   - repo: local
     hooks:
-#      - id: fix-logging-fstrings
-#        name: Fix logging f-strings
-#        entry: python scripts/lazy_format.py
-#        language: system
-#        files: \.py$
-#        stages: [pre-commit]
-
       - id: pytest
         name: Run unit tests
         entry: pytest
@@ -102,7 +108,7 @@ repos:
         pass_filenames: false
         types: [python]
         args: [--maxfail=1, --disable-warnings]
-        language_version: python3.12
+        language_version: python3.13
         additional_dependencies:
           - pytest
           - requests

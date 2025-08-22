@@ -1,14 +1,17 @@
 import logging
+import signal
 import threading
 import time
-import signal
+
 from lib.config import config
-from lib.yarn import LogRotation, TrainerThread, ClassificationThread
+from lib.yarn import ClassificationThread, LogRotation, TrainerThread
+
 
 # Register signal handler for SIGTERM
 def graceful_shutdown(signum, _frame):
     logging.info(f"Received signal {signum}, shutting down gracefully.")
     StopEvent.set()
+
 
 # Usage Example
 if __name__ == "__main__":
@@ -31,18 +34,29 @@ if __name__ == "__main__":
 
     # Class Objects
     Logger = LogRotation(StopEvent)
-    SpamTrain = TrainerThread(name="Trainer-Spam",mailbox=(spam_learn, spam_folder, 0), stop_event=StopEvent, barrier=ProcEvent, model_lock=model_lock, batch_size=config.BATCH_SIZE)
-    HamTrain = TrainerThread(name="Trainer-Ham",mailbox=(ham_learn, ham_folder, 1), stop_event=StopEvent, barrier=ProcEvent, model_lock=model_lock, batch_size=config.BATCH_SIZE)
-    Classification = ClassificationThread(name="PostMan",mailbox=mail_que, stop_event=StopEvent, barrier=ProcEvent, batch_size=config.BATCH_SIZE)
+    SpamTrain = TrainerThread(
+        name="Trainer-Spam",
+        mailbox=(spam_learn, spam_folder, 0),
+        stop_event=StopEvent,
+        barrier=ProcEvent,
+        model_lock=model_lock,
+        batch_size=config.BATCH_SIZE,
+    )
+    HamTrain = TrainerThread(
+        name="Trainer-Ham",
+        mailbox=(ham_learn, ham_folder, 1),
+        stop_event=StopEvent,
+        barrier=ProcEvent,
+        model_lock=model_lock,
+        batch_size=config.BATCH_SIZE,
+    )
+    Classification = ClassificationThread(
+        name="PostMan", mailbox=mail_que, stop_event=StopEvent, barrier=ProcEvent, batch_size=config.BATCH_SIZE
+    )
 
     # List of threads (DaemonThread calls directly placed in the list)
-    threads = [
-        Logger,
-        SpamTrain,
-        HamTrain,
-        Classification
-    ]
-        # Start all threads
+    threads = [Logger, SpamTrain, HamTrain, Classification]
+    # Start all threads
     try:
         for thread in threads:
             logging.info(f"Starting thread: {thread.name}")

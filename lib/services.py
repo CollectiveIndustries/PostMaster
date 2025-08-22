@@ -1,5 +1,5 @@
-import time  # Added for service restart delay
 import subprocess
+import time  # Added for service restart delay
 
 
 def is_clamd_running():
@@ -10,6 +10,7 @@ def is_clamd_running():
     except FileNotFoundError:
         print("ClamAV is not installed or not found in the system path.")
         return False
+
 
 def restart_clamd():
     """Restart the ClamAV service."""

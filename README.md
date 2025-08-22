@@ -69,4 +69,3 @@ python main.py
 
 - The application will connect to the database, train the email classification model, and process incoming emails.
 - To classify emails, ensure the model is trained or loaded first.
-

@@ -3,8 +3,9 @@ This module provides the EmailDatabase class for interacting with a database
 to manage email hashes, classifications, folders, mail queue, and processing logs.
 """
 
-from typing import Generator, Optional, List, Dict
 import logging
+from typing import Dict, Generator, List, Optional
+
 from CollectiveCore.MariaMod import MariaModule
 
 
@@ -52,7 +53,9 @@ class EmailDatabase:
             return
 
         # Ensure classification exists
-        ensure_query = "INSERT IGNORE INTO classifications (classification_id, description, is_dynamic) VALUES (%s, '', FALSE)"
+        ensure_query = (
+            "INSERT IGNORE INTO classifications (classification_id, description, is_dynamic) VALUES (%s, '', FALSE)"
+        )
         self.db.execute(ensure_query, (classification_id,), commit=True)
 
         # Add folder

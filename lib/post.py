@@ -32,26 +32,29 @@ Functions:
     EmailHasher:
         generate_sha256sum(email_content: bytes) -> str: Generates a SHA-256 hash from the email content.
 """
-import logging
-import imaplib
-import os
-import time
+
 import email
-import threading
 import hashlib
+import imaplib
+import logging
+import os
 import re
 import socket
-from typing import Generator
+import threading
+import time
 from imaplib import IMAP4
+from typing import Generator
 
 from lib.utils import log_progress
-from .database import EmailDatabase
+
 from .config import config
+from .database import EmailDatabase
+
 
 def match_uid(email_uid: str, fetch_response: bytes) -> bool:
     """
     Compare the email UID against the UID in the fetch response.
-    
+
     Args:
         email_uid (str): The UID of the email from the first fetch.
         fetch_response (bytes): The raw fetch response containing X-GM-MSGID and UID.
@@ -62,12 +65,13 @@ def match_uid(email_uid: str, fetch_response: bytes) -> bool:
     # Decode the fetch response and extract the UID using a regex
     decoded_response = fetch_response.decode()
     match = re.search(r'UID (\d+)', decoded_response)
-    
+
     if match:
         fetched_uid = match.group(1)  # Extract UID from the response
         return email_uid == fetched_uid  # Compare with email.uid
     else:
         return False
+
 
 class Email:
     def __init__(self, raw_data: list):
@@ -153,9 +157,10 @@ class Email:
             data.append(self.recipient if self.recipient is not None else "None")
         if config.USE_BODY:
             data.append(self.payload if self.payload is not None else "None")
-        return " ".join(data)        
+        return " ".join(data)
 
-class PostOffice():
+
+class PostOffice:
     def __init__(self, event: threading.Event, mailbox: str):
         logging.info("Initializing PostOffice.")
 
@@ -229,8 +234,8 @@ class PostOffice():
         """
         Logs out from the IMAP server and records the action in the log.
 
-        This method calls the `logout` function of the `srv` attribute to 
-        terminate the session with the IMAP server. It also logs an 
+        This method calls the `logout` function of the `srv` attribute to
+        terminate the session with the IMAP server. It also logs an
         informational message indicating that the logout was successful.
         """
         if self.srv is None:
@@ -252,7 +257,9 @@ class PostOffice():
         try:
             # Check if the connection is active
             if self.srv is None or self.srv.state not in ['SELECTED', 'AUTH']:
-                logging.warning(f"IMAP connection is in state '{self.srv.state if self.srv else 'None'}'. Reconnecting...")
+                logging.warning(
+                    f"IMAP connection is in state '{self.srv.state if self.srv else 'None'}'. Reconnecting..."
+                )
                 self.connect()
 
             # Check if the folder is selected
@@ -264,7 +271,7 @@ class PostOffice():
             logging.error(f"Failed to reconnect or select folder '{self.mailbox}': {e}")
             return False
 
-    def select_box(self, readonly: bool = True ):
+    def select_box(self, readonly: bool = True):
         """
         Selects the mailbox for further operations.
 
@@ -279,7 +286,7 @@ class PostOffice():
         Error: IMAP connection error selecting the mailbox.
         """
         try:
-            self.srv.select(self.mailbox, readonly) # DO NOT flag mail as read.
+            self.srv.select(self.mailbox, readonly)  # DO NOT flag mail as read.
             logging.debug(f"Successfully connected to mailbox '{self.mailbox}'.")
         except IMAP4.error as e:
             logging.error(f"IMAP connection error selecting mailbox: {e}")
@@ -301,7 +308,7 @@ class PostOffice():
         start_time = time.time()
         index = 0
         for chunk_start in range(0, total_emails, chunk_size):
-            chunk = x_gm_msgids[chunk_start:chunk_start + chunk_size]
+            chunk = x_gm_msgids[chunk_start : chunk_start + chunk_size]
             uid_map = {}
 
             # Step 1: Search for UIDs using X-GM-MSGID
@@ -328,15 +335,17 @@ class PostOffice():
                     uids_to_fetch = ','.join(uid_map.keys())
 
                     # Fetch email data (headers and body)
-                    result, fetch_data = self.srv.uid( 'FETCH', uids_to_fetch, "(BODY[HEADER.FIELDS (Subject From To)] BODY[TEXT])")
+                    result, fetch_data = self.srv.uid(
+                        'FETCH', uids_to_fetch, "(BODY[HEADER.FIELDS (Subject From To)] BODY[TEXT])"
+                    )
 
                     # Fetch X-GM-MSGID data
-                    msgid_status, msgid_fetch_data = self.srv.uid( 'FETCH', uids_to_fetch, "(X-GM-MSGID)")
+                    msgid_status, msgid_fetch_data = self.srv.uid('FETCH', uids_to_fetch, "(X-GM-MSGID)")
 
                     if result == "OK" and fetch_data and msgid_status == "OK" and msgid_fetch_data:
 
                         for i in range(0, len(fetch_data), 3):  # Step by 3 to skip every third element
-                            email_data = fetch_data[i:i + 2]  # Take the first two elements
+                            email_data = fetch_data[i : i + 2]  # Take the first two elements
                             if len(email_data) == 2:  # Ensure there are two elements to process
                                 email_obj = Email(email_data)  # Parse the email
                                 for msgid_data in msgid_fetch_data:
@@ -426,7 +435,7 @@ class PostOffice():
         self.database.mark_email_as_failed(x_gm_msgid)
         return None
 
-    def move(self, uids: list[bytes], destination_folder: str): # TODO: refactor to move in bulk
+    def move(self, uids: list[bytes], destination_folder: str):  # TODO: refactor to move in bulk
         """
         Args:
             destination_folder (str): The name of the destination folder where the email should be moved.
@@ -453,7 +462,7 @@ class PostOffice():
             status, _ = self.srv.uid("STORE", uid_str, "+FLAGS", "(\\Deleted)")
             if status != "OK":
                 raise Exception("Failed to mark emails as deleted.")
-            
+
             status, _ = self.srv.expunge()
             if status != "OK":
                 raise Exception("Failed to expunge emails.")
@@ -471,7 +480,9 @@ class PostOffice():
         - x_gm_msgids: A list of email X-GM-MSGIDs as strings.
         """
         try:
-            logging.debug(f"Starting bulk move of {len(x_gm_msgids)} emails from '{self.mailbox}' to '{destination_folder}'.")
+            logging.debug(
+                f"Starting bulk move of {len(x_gm_msgids)} emails from '{self.mailbox}' to '{destination_folder}'."
+            )
 
             # Select source folder
             self.select_box(self.mailbox, readonly=False)
@@ -507,7 +518,9 @@ class PostOffice():
 
             # Expunge to permanently delete emails
             self.srv.expunge()
-            logging.info(f"Bulk move completed: {len(email_ids)} emails moved from '{self.mailbox}' to '{destination_folder}'.")
+            logging.info(
+                f"Bulk move completed: {len(email_ids)} emails moved from '{self.mailbox}' to '{destination_folder}'."
+            )
 
         except IMAP4.error as e:
             logging.error(f"IMAP error during bulk move: {e}")
@@ -592,9 +605,9 @@ class PostOffice():
     def keep_alive(self):
         """
         Sends a NOOP command to the IMAP server to keep the connection alive.
-        
+
         If the connection is aborted, logs a warning and attempts to reconnect.
-        
+
         Raises:
             imaplib.IMAP4.abort: If the IMAP connection is aborted.
         """
@@ -632,7 +645,7 @@ class PostOffice():
 
             # Process emails in batches
             for i in range(0, len(ids), batch_size):
-                batch_ids = ids[i:i + batch_size]
+                batch_ids = ids[i : i + batch_size]
 
                 # Decode the batch_ids (if they're bytes)
                 batch_ids_str = [id.decode() if isinstance(id, bytes) else str(id) for id in batch_ids]
@@ -784,7 +797,7 @@ class PostOffice():
             if self.srv is None:
                 logging.warning("IMAP server connection is not initialized.")
                 return False
-        
+
             # Send a NOOP command to verify the connection
             status, _ = self.srv.noop()
             if status == "OK":
@@ -796,6 +809,7 @@ class PostOffice():
         except (socket.error, imaplib.IMAP4.error) as e:
             logging.error(f"Socket error detected: {e}")
             return False
+
 
 class EmailHasher:
 
@@ -815,6 +829,6 @@ class EmailHasher:
         """
         if not isinstance(email_content, bytes):
             email_content = email_content.encode('utf-8')
-        
+
         sha256_hash = hashlib.sha256(email_content).hexdigest()
         return sha256_hash

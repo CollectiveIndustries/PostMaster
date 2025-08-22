@@ -2,7 +2,9 @@
 import imaplib
 import logging
 import time
+
 from lib.config import config
+
 
 class IMAPDebugger:
     def __init__(self):
@@ -82,6 +84,7 @@ class IMAPDebugger:
         if self.mail:
             self.mail.logout()
             logging.info("Disconnected from IMAP server.")
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
