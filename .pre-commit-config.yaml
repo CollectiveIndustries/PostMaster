@@ -104,7 +104,7 @@ repos:
     hooks:
       - id: lazy-format
         name: Fix logging f-strings
-        entry: python lazy_format.py
+        entry: python hooks/lazy_format.py
         language: system
         files: \.py$
       - id: pylint-todo

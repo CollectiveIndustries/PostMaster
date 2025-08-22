@@ -9,10 +9,10 @@ from lib.yarn import ClassificationThread, LogRotation, TrainerThread
 
 # Register signal handler for SIGTERM
 def graceful_shutdown(signum, _frame):
-    logging.info(
+    logging.info(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         f"Received signal {signum}, shutting down gracefully."
-    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
-    StopEvent.set()  # pylint: ignore=possibly-used-before-assignment
+    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
+    StopEvent.set()  # pylint: ignore=possibly-used-before-assignment  # FIXME pylint: E0011: Unrecognized file option 'ignore' (unrecognized-inline-option)  # FIXME pylint: E0606: Possibly using variable 'StopEvent' before assignment (possibly-used-before-assignment)
 
 
 # Usage Example
@@ -61,9 +61,9 @@ if __name__ == "__main__":
     # Start all threads
     try:
         for thread in threads:
-            logging.info(
+            logging.info(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                 f"Starting thread: {thread.name}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
             thread.start()
 
         logging.info("Service is running.")
@@ -76,18 +76,18 @@ if __name__ == "__main__":
         logging.info("Received KeyboardInterrupt, shutting down gracefully.")
         StopEvent.set()
     except Exception as e:
-        logging.error(
+        logging.error(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
             f"Unexpected error occurred: {e}", exc_info=True
-        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
         StopEvent.set()
     finally:
         logging.info("Stopping all threads.")
 
         # Ensure threads stop and join gracefully
         for thread in threads:
-            logging.info(
+            logging.info(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                 f"Waiting for thread to exit: {thread.name}"
-            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: E0011: Unrecognized file option 'logging-fstring-interpolation' (unrecognized-inline-option)
             thread.stop()
             thread.join()
         logging.info("All threads have exited cleanly.")
