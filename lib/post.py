@@ -1,3 +1,4 @@
+# pylint: disable=line-too-long
 """
 This module provides classes and functions for managing and processing emails using the IMAP protocol.
 Classes:
@@ -32,6 +33,7 @@ Functions:
     EmailHasher:
         generate_sha256sum(email_content: bytes) -> str: Generates a SHA-256 hash from the email content.
 """
+# pylint: enable=line-too-long
 
 import email
 import hashlib

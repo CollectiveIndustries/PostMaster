@@ -1,3 +1,4 @@
+# pylint: disable=line-too-long
 """
 This module provides functionality for log rotation, email training, and classification using threading.
 It includes classes for log rotation, training emails in batches, and classifying emails based on a trained model.
@@ -10,6 +11,7 @@ Classes:
 Functions:
     split_batches: Splits a total number of items into chunks of a specified batch size.
 """
+# pylint: enable=line-too-long
 
 import gzip
 import logging
@@ -97,7 +99,9 @@ class ThreadBase(threading.Thread):
         """
         Signals the thread to stop and cleans up resources.
         """
-        logging.info(f"Stopping thread: {self.name}")
+        logging.info(
+            f"Stopping thread: {self.name}"
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         self.stop_event.set()  # Signal the thread to stop
         self.CleanUpConnections()
 
@@ -110,7 +114,9 @@ class ThreadBase(threading.Thread):
                 logging.info("Closing database connection...")
                 self.email_db.close()
         except Exception as e:
-            logging.error(f"Error closing database connection: {e}", exc_info=True)
+            logging.error(
+                f"Error closing database connection: {e}", exc_info=True
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
         try:
             if self.post_office:
@@ -118,14 +124,18 @@ class ThreadBase(threading.Thread):
                 self.post_office.close()
                 self.post_office.logout()
         except Exception as e:
-            logging.error(f"Error closing IMAP connection: {e}", exc_info=True)
+            logging.error(
+                f"Error closing IMAP connection: {e}", exc_info=True
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
         try:
             if self.mail_net and hasattr(self.mail_net, "unload_model"):
                 logging.info("Unloading TensorFlow model...")
                 self.mail_net.unload_model()
         except Exception as e:
-            logging.error(f"Error unloading TensorFlow model: {e}", exc_info=True)
+            logging.error(
+                f"Error unloading TensorFlow model: {e}", exc_info=True
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
     def ThreadSleep(self):
         """
@@ -158,28 +168,38 @@ class TrainerThread(ThreadBase):
         self.post_office = PostOffice(stop_event, self.src)
 
     def run(self):
-        logging.info(f"Trainer thread for '{self.src}' started.")
+        logging.info(
+            f"Trainer thread for '{self.src}' started."
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         self.post_office = PostOffice(self.stop_event, self.src)
 
         self.email_db.add_folder_and_classification(self.class_id, self.dst)
 
         try:
             while not self.stop_event.is_set():
-                logging.info(f"Checking IMAP state and database connectivity.")
+                logging.info(
+                    f"Checking IMAP state and database connectivity."
+                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: W1309: Using an f-string that does not have any interpolated variables (f-string-without-interpolation)
                 self.post_office.check_imap_state(readonly=False)
                 self.email_db.check_and_reconnect()
 
                 # Fetch emails from IMAP
-                logging.info(f"Checking for mail in '{self.src}'.")
+                logging.info(
+                    f"Checking for mail in '{self.src}'."
+                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                 total = self.post_office.total_emails(self.src)
 
                 if total == 0:
-                    logging.info(f"No emails to process in '{self.src}'. Sleeping until the next cycle.")
-                    self.ThreadSleep()  # Sleep if no emails to process # TODO CRITICAL work out thread sleep event logic
+                    logging.info(
+                        f"No emails to process in '{self.src}'. Sleeping until the next cycle."
+                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
+                    self.ThreadSleep()  # Sleep if no emails to process # TODO CRITICAL work out thread sleep event logic  # FIXME pylint: C0301: Line too long (121/120) (line-too-long)
                     interruptible_sleep(self.SleepTime, self.stop_event)  # Allow interruptible sleep
                     continue  # Skip the rest of the loop and start the next cycle
 
-                logging.info(f"Fetching email message IDs from '{self.src}'.")
+                logging.info(
+                    f"Fetching email message IDs from '{self.src}'."
+                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                 index = 0
                 start_time = time.time()
 
@@ -192,19 +212,27 @@ class TrainerThread(ThreadBase):
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
 
                 if total_count > 0:
-                    logging.info(f"Total emails to process: {total_count}. Beginning training cycle.")
+                    logging.info(
+                        f"Total emails to process: {total_count}. Beginning training cycle."
+                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                     self.mail_net.load_model()
                     self._ProcessesBatches_(total_count)
-                    logging.info(f"Training completed. Waiting for next cycle.")
+                    logging.info(
+                        f"Training completed. Waiting for next cycle."
+                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: W1309: Using an f-string that does not have any interpolated variables (f-string-without-interpolation)
 
                 self.ThreadSleep()
                 interruptible_sleep(self.SleepTime, self.stop_event)
 
         except Exception as e:
-            logging.error(f"Error in trainer thread: {e}", exc_info=True)
+            logging.error(
+                f"Error in trainer thread: {e}", exc_info=True
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
             self.stop_event.set()
 
-        logging.info(f"Trainer thread stopped. Waiting for other threads to finish.")
+        logging.info(
+            f"Trainer thread stopped. Waiting for other threads to finish."
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: W1309: Using an f-string that does not have any interpolated variables (f-string-without-interpolation)
         self.ThreadSleep()
 
     def _ProcessesBatches_(self, total_count) -> None:
@@ -212,13 +240,17 @@ class TrainerThread(ThreadBase):
             if self.stop_event.is_set():
                 break
 
-            logging.info(f"Processing batch {start + 1} to {_end_} out of {total_count}.")
+            logging.info(
+                f"Processing batch {start + 1} to {_end_} out of {total_count}."
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
             email_batch = []
             x_gm_msgids = list(self.email_db.fetch_mail_from_queue(self.name, total_count))
 
             if not x_gm_msgids:
-                logging.debug(f"No more emails in the queue to process.")
+                logging.debug(
+                    f"No more emails in the queue to process."
+                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: W1309: Using an f-string that does not have any interpolated variables (f-string-without-interpolation)
                 break
 
             start_time = time.time()
@@ -235,18 +267,24 @@ class TrainerThread(ThreadBase):
                 index += 1
 
                 if len(email_batch) >= self.batch_size:
-                    logging.info(f"Full batch fetched. Processing {len(email_batch)} emails.")
+                    logging.info(
+                        f"Full batch fetched. Processing {len(email_batch)} emails."
+                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                     self.process_batch(email_batch)
                     email_batch = []  # Reset the batch
 
             if email_batch:  # Process remaining emails
-                logging.info(f"Processing the final batch of {len(email_batch)} emails.")
+                logging.info(
+                    f"Processing the final batch of {len(email_batch)} emails."
+                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                 self.process_batch(email_batch)
 
             log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Training emails")
 
     def process_batch(self, email_batch: list[Email]) -> None:
-        logging.info(f"Starting model training for {len(email_batch)} emails.")
+        logging.info(
+            f"Starting model training for {len(email_batch)} emails."
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         try:
             with self.rlock:  # Ensure thread-safe model access
                 # Tokenizer and model training
@@ -259,14 +297,20 @@ class TrainerThread(ThreadBase):
                 with open(f"{config.TRAINING_DATA_PATH}/tokenizer.pkl", "wb") as f:
                     pickle.dump(self.mail_net.tokenizer, f)
 
-            logging.info(f"Model training completed for this batch.")
+            logging.info(
+                f"Model training completed for this batch."
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: W1309: Using an f-string that does not have any interpolated variables (f-string-without-interpolation)
 
         except Exception as e:
-            logging.error(f"Error during model training: {e}", exc_info=True)
+            logging.error(
+                f"Error during model training: {e}", exc_info=True
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
         # Move emails and update database
         trained_msg_ids = []
-        logging.info(f"Moving processed emails to '{self.dst}' and updating the database.")
+        logging.info(
+            f"Moving processed emails to '{self.dst}' and updating the database."
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         start_time = time.time()
         index = 0
         uid_lst = []
@@ -279,7 +323,9 @@ class TrainerThread(ThreadBase):
                 success = self.email_db.pop_from_que(email.msgid, self.name)
 
                 if not success:
-                    logging.error(f"Failed to pop email with X-GM-MSGID '{email.msgid}' from queue.")
+                    logging.error(
+                        f"Failed to pop email with X-GM-MSGID '{email.msgid}' from queue."
+                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
                 trained_msg_ids.append(email.msgid)
 
@@ -288,14 +334,20 @@ class TrainerThread(ThreadBase):
                 index += 1
 
             except Exception as e:
-                logging.error(f"Failed to process email with X-GM-MSGID '{email.msgid}': {e}", exc_info=True)
+                logging.error(
+                    f"Failed to process email with X-GM-MSGID '{email.msgid}': {e}", exc_info=True
+                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
         self.post_office.move(uids=uid_lst, destination_folder=self.dst)
 
         if trained_msg_ids:
-            logging.info(f"Successfully processed {len(trained_msg_ids)} emails in this batch.")
+            logging.info(
+                f"Successfully processed {len(trained_msg_ids)} emails in this batch."
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         else:
-            logging.warning(f"No emails were successfully processed in this batch.")
+            logging.warning(
+                f"No emails were successfully processed in this batch."
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)  # FIXME pylint: W1309: Using an f-string that does not have any interpolated variables (f-string-without-interpolation)
 
 
 class ClassificationThread(ThreadBase):
@@ -317,7 +369,9 @@ class ClassificationThread(ThreadBase):
 
     def run(self):
         """Main thread runner."""
-        logging.info(f"Trainer thread for '{self.mailbox}' started.")
+        logging.info(
+            f"Trainer thread for '{self.mailbox}' started."
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         self.post_office = PostOffice(self.stop_event, self.mailbox)
 
         try:
@@ -398,7 +452,9 @@ class ClassificationThread(ThreadBase):
 
         # Once all emails are collected, classify them
         if email_batch:
-            logging.info(f"Classifying a total of {len(email_batch)} emails.")
+            logging.info(
+                f"Classifying a total of {len(email_batch)} emails."
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
             self.mail_net.load_model()
             self.mail_net.classify_emails(email_batch)  # Classify all emails at once
 
@@ -456,12 +512,18 @@ class LogRotation(threading.Thread):
             try:
                 if os.path.exists(log_file):
                     file_size = os.path.getsize(log_file)
-                    logging.debug(f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}")
+                    logging.debug(
+                        f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}"
+                    )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                     if file_size >= config.MAX_SIZE:
-                        logging.warning(f"Log file size exceeded threshold: {log_file}")
+                        logging.warning(
+                            f"Log file size exceeded threshold: {log_file}"
+                        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                         self.rotate()
                 else:
-                    with open(log_file, 'w') as log_file:
+                    with open(
+                        log_file, 'w'
+                    ) as log_file:  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)
                         log_file.write("")  # Initialize an empty log file
             except Exception as e:
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
@@ -500,7 +562,9 @@ class LogRotation(threading.Thread):
                         shutil.copyfileobj(f_in, f_out)
                 logging.info("Archived current log file as daily log: %s", daily_log)
                 # Clear the current log file
-                open(self.log_file, 'w').close()
+                open(
+                    self.log_file, 'w'
+                ).close()  # FIXME pylint: R1732: Consider using 'with' for resource-allocating operations (consider-using-with)  # FIXME pylint: W1514: Using open without explicitly specifying an encoding (unspecified-encoding)
 
             # Manage weekly and monthly logs
             if now.weekday() == 0:  # If it's Monday, create a weekly log

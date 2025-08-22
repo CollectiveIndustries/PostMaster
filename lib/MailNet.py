@@ -4,11 +4,26 @@ import pickle
 import threading
 
 import tensorflow as tf
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Embedding, Input  # type: ignore
-from tensorflow.keras.models import Sequential, load_model  # type: ignore
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.preprocessing.sequence import pad_sequences  # type: ignore
-from tensorflow.keras.preprocessing.text import Tokenizer  # type: ignore
+from tensorflow.keras.layers import (  # type: ignore  # FIXME pylint: E0401: Unable to import 'tensorflow.keras.layers' (import-error)  # FIXME pylint: E0611: No name 'keras' in module 'tensorflow' (no-name-in-module)
+    LSTM,
+    Dense,
+    Dropout,
+    Embedding,
+    Input,
+)
+from tensorflow.keras.models import (  # type: ignore  # FIXME pylint: E0401: Unable to import 'tensorflow.keras.models' (import-error)  # FIXME pylint: E0611: No name 'keras' in module 'tensorflow' (no-name-in-module)
+    Sequential,
+    load_model,
+)
+from tensorflow.keras.optimizers import (
+    Adam,  # FIXME pylint: E0401: Unable to import 'tensorflow.keras.optimizers' (import-error)  # FIXME pylint: E0611: No name 'keras' in module 'tensorflow' (no-name-in-module)
+)
+from tensorflow.keras.preprocessing.sequence import (
+    pad_sequences,  # type: ignore  # FIXME pylint: E0401: Unable to import 'tensorflow.keras.preprocessing.sequence' (import-error)  # FIXME pylint: E0611: No name 'keras' in module 'tensorflow' (no-name-in-module)
+)
+from tensorflow.keras.preprocessing.text import (
+    Tokenizer,  # type: ignore  # FIXME pylint: E0401: Unable to import 'tensorflow.keras.preprocessing.text' (import-error)  # FIXME pylint: E0611: No name 'keras' in module 'tensorflow' (no-name-in-module)
+)
 
 from .config import config
 from .post import Email
@@ -29,7 +44,9 @@ class MailNet:
             history_path = f"{config.TRAINING_DATA_PATH}/history.pkl"
             with open(history_path, "wb") as f:
                 pickle.dump(self.model.history.history, f)
-            logging.info(f"Training history saved to '{history_path}'")
+            logging.info(
+                f"Training history saved to '{history_path}'"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         else:
             logging.warning("No training history found to save.")
 
@@ -37,12 +54,16 @@ class MailNet:
         """Preprocess email texts into padded sequences."""
         if not texts:
             raise ValueError("Input texts list is empty.")
-        logging.debug(f"Preprocessing {len(texts)} texts.")
+        logging.debug(
+            f"Preprocessing {len(texts)} texts."
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         sequences = self.tokenizer.texts_to_sequences(texts)
         if not sequences or all(len(seq) == 0 for seq in sequences):
             raise ValueError("Tokenization failed. Sequences are empty.")
         padded_sequences = pad_sequences(sequences, maxlen=self.max_sequence_length, padding='post', truncating='post')
-        logging.debug(f"First 3 padded sequences: {padded_sequences[:3]}")
+        logging.debug(
+            f"First 3 padded sequences: {padded_sequences[:3]}"
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         return padded_sequences
 
     def fit_tokenizer(self, email_texts: list):
@@ -52,7 +73,9 @@ class MailNet:
         new_vocab_size = len(self.tokenizer.word_index)
         self.vocab_size = new_vocab_size + 1
         if new_vocab_size > current_vocab_size:
-            logging.info(f"Tokenizer updated: Added {new_vocab_size - current_vocab_size} new words.")
+            logging.info(
+                f"Tokenizer updated: Added {new_vocab_size - current_vocab_size} new words."
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         else:
             logging.info("Tokenizer vocabulary remains unchanged.")
 
@@ -92,50 +115,66 @@ class MailNet:
             X = self.preprocess_data(email_texts)
 
             # Debug: Check preprocessed data
-            logging.debug(f"Preprocessed data sample: {X[:5]}")
+            logging.debug(
+                f"Preprocessed data sample: {X[:5]}"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
             # Predict classifications
             predictions = self.model.predict(X)
 
             # Debug: Check predictions
-            logging.debug(f"Predictions: {predictions[:10]}")
+            logging.debug(
+                f"Predictions: {predictions[:10]}"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
             # Update class_id for each email
             for email, prediction in zip(emails, predictions):
                 email.class_id = 1 if prediction > 0.5 else 0
-                logging.debug(f"Email: {email.text()}, Prediction: {prediction}, Class ID: {email.class_id}")
+                logging.debug(
+                    f"Email: {email.text()}, Prediction: {prediction}, Class ID: {email.class_id}"
+                )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
     def save_model(self, model_path: str = f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras") -> None:
         """Save the model and tokenizer to disk."""
         if not self.model:
             raise ValueError("No model found to save.")
         self.model.save(model_path)
-        logging.info(f"Model saved to '{model_path}'")
+        logging.info(
+            f"Model saved to '{model_path}'"
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         tokenizer_path = f"{config.TRAINING_DATA_PATH}/tokenizer.pkl"
         with open(tokenizer_path, "wb") as f:
             pickle.dump(self.tokenizer, f)
-        logging.info(f"Tokenizer saved to '{tokenizer_path}'")
+        logging.info(
+            f"Tokenizer saved to '{tokenizer_path}'"
+        )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
 
     def load_model(self, model_path: str = f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras") -> None:
         """Load a model and tokenizer from disk or create new ones if they don't exist."""
         if os.path.exists(model_path):
             self.model = load_model(model_path)
-            logging.info(f"Model loaded from '{model_path}'")
+            logging.info(
+                f"Model loaded from '{model_path}'"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         else:
             self.model = self._create_model()
             self.model.save(model_path)
-            logging.info(f"New model created and saved to '{model_path}'")
+            logging.info(
+                f"New model created and saved to '{model_path}'"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         tokenizer_path = f"{config.TRAINING_DATA_PATH}/tokenizer.pkl"
         if os.path.exists(tokenizer_path):
             with open(tokenizer_path, "rb") as f:
                 self.tokenizer = pickle.load(f)
             self.vocab_size = len(self.tokenizer.word_index) + 1
-            logging.info(f"Tokenizer loaded from '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}")
+            logging.info(
+                f"Tokenizer loaded from '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
         else:
             self.tokenizer = Tokenizer(num_words=self.max_vocab_size, oov_token="<OOV>")
             with open(tokenizer_path, "wb") as f:
                 pickle.dump(self.tokenizer, f)
-            logging.info(
+            logging.info(  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
                 f"New tokenizer created and saved to '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}"
             )
 
@@ -157,10 +196,12 @@ class MailNet:
         """Unload the model and clear resources."""
         if self.model:
             self.model = None
-            from keras import backend as K
+            from keras import (
+                backend as K,  # FIXME pylint: C0415: Import outside toplevel (keras.backend) (import-outside-toplevel)
+            )
 
             K.clear_session()
-            import gc
+            import gc  # FIXME pylint: C0415: Import outside toplevel (gc) (import-outside-toplevel)
 
             gc.collect()
             logging.info("Model unloaded.")

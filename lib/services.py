@@ -5,7 +5,9 @@ import time  # Added for service restart delay
 def is_clamd_running():
     """Check if the ClamAV service is running."""
     try:
-        result = subprocess.run(["clamdscan", "--version"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["clamdscan", "--version"], capture_output=True, text=True
+        )  # FIXME pylint: W1510: 'subprocess.run' used without explicitly defining the value for 'check'. (subprocess-run-check)
         return result.returncode == 0
     except FileNotFoundError:
         print("ClamAV is not installed or not found in the system path.")

@@ -24,12 +24,20 @@ class EmailDatabase:
         """
         self.db.execute(query, (hash_id, x_gm_msgid, classification_id), commit=True)
 
-    def get_classification(self, x_gm_msgid: str) -> Optional[str]:
+    def get_classification(
+        self, x_gm_msgid: str
+    ) -> Optional[
+        str
+    ]:  # FIXME pylint: R6003: Consider using alternative Union syntax instead of 'Optional' (consider-alternative-union-syntax)
         query = "SELECT classification_id FROM email_hashes WHERE x_gm_msgid = %s"
         result = self.db.execute(query, (x_gm_msgid,), fetch=True)
         return result[0]["classification_id"] if result else None
 
-    def get_mail_map(self) -> Optional[Dict[str, str]]:
+    def get_mail_map(
+        self,
+    ) -> Optional[
+        Dict[str, str]
+    ]:  # FIXME pylint: R6003: Consider using alternative Union syntax instead of 'Optional' (consider-alternative-union-syntax)  # FIXME pylint: W6001: 'typing.Dict' is deprecated, use 'dict' instead (deprecated-typing-alias)
         query = "SELECT classification_id, folder_name FROM classification_folders"
         result = self.db.execute(query, fetch=True)
         return {row["classification_id"]: row["folder_name"] for row in result} if result else None
@@ -49,7 +57,9 @@ class EmailDatabase:
         # Avoid duplicate folder
         check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
         if self.db.execute(check_query, (classification_id, folder_name), fetch=True):
-            logging.warning(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
+            logging.warning(
+                f"Folder '{folder_name}' with classification ID '{classification_id}' already exists."
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
             return
 
         # Ensure classification exists
@@ -62,7 +72,9 @@ class EmailDatabase:
         add_query = "INSERT INTO classification_folders (classification_id, folder_name) VALUES (%s, %s)"
         self.db.execute(add_query, (classification_id, folder_name), commit=True)
 
-    def set_trained_flag(self, hash_ids: List[str], trained: bool = True) -> None:
+    def set_trained_flag(
+        self, hash_ids: List[str], trained: bool = True
+    ) -> None:  # FIXME pylint: W6001: 'typing.List' is deprecated, use 'list' instead (deprecated-typing-alias)
         if not hash_ids:
             logging.warning("No hash IDs provided to set 'trained' flag.")
             return
@@ -75,7 +87,9 @@ class EmailDatabase:
         result = self.db.execute(query, (x_gm_msgid,), fetch=True)
         return result[0]["trained"] if result else False
 
-    def update_mail_queue(self, thread_marker: str, msg_ids: List[int]) -> bool:
+    def update_mail_queue(
+        self, thread_marker: str, msg_ids: List[int]
+    ) -> bool:  # FIXME pylint: W6001: 'typing.List' is deprecated, use 'list' instead (deprecated-typing-alias)
         if not msg_ids:
             logging.error("The input parameter msg_ids must be a non-empty list of integers.")
             return False
@@ -91,11 +105,17 @@ class EmailDatabase:
             self.db.conn.commit()
             return True
         except Exception as e:
-            logging.error(f"Error updating mail queue: {e}")
+            logging.error(
+                f"Error updating mail queue: {e}"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
             self.db.conn.rollback()
             return False
 
-    def fetch_mail_from_queue(self, thread_marker: str, batch_size: int) -> Generator[str, None, None]:
+    def fetch_mail_from_queue(
+        self, thread_marker: str, batch_size: int
+    ) -> Generator[
+        str, None, None
+    ]:  # FIXME pylint: R6007: Type `Generator[str, None, None]` has unnecessary default type args. Change it to `Generator[str]`. (unnecessary-default-type-args)  # FIXME pylint: W6001: 'typing.Generator' is deprecated, use 'collections.abc.Generator' instead (deprecated-typing-alias)
         query = """
             SELECT x_gm_msgid
             FROM mail_que
@@ -124,10 +144,14 @@ class EmailDatabase:
             cursor = self.db.conn.cursor()
             cursor.execute(query, (msgid, thread_marker))
             affected = cursor.rowcount
-            self.db.conn.commit() if affected > 0 else self.db.conn.rollback()
+            (
+                self.db.conn.commit() if affected > 0 else self.db.conn.rollback()
+            )  # FIXME pylint: W0106: Expression "self.db.conn.commit() if affected > 0 else self.db.conn.rollback()" is assigned to nothing (expression-not-assigned)
             return affected > 0
         except Exception as e:
-            logging.error(f"Error popping from queue: {e}")
+            logging.error(
+                f"Error popping from queue: {e}"
+            )  # FIXME pylint: W1203: Use lazy % formatting in logging functions (logging-fstring-interpolation)
             self.db.conn.rollback()
             return False
         finally:

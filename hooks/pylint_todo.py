@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pre-commit hook to run pylint once, and append a FIXME comment to the end of each offending line.
+Pre-commit hook to run pylint once, and append a FIX_ME comment to the end of each offending line.
 ANSI color codes are removed.
 """
 
@@ -23,6 +23,7 @@ result = subprocess.run(
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
+    check=True,
 )
 
 # Remove ANSI codes
@@ -38,7 +39,7 @@ for line in pylint_output.splitlines():
         file_path = Path(file_path)
         lineno = int(lineno)
 
-        # Append FIXME comment to the end of the line, avoid duplicates
+        # Append FIX_ME comment to the end of the line, avoid duplicates
         if file_path.exists():
             lines = file_path.read_text(encoding="utf-8").splitlines()
             idx = lineno - 1
