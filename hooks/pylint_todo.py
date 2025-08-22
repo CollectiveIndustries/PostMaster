@@ -23,7 +23,7 @@ result = subprocess.run(
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
-    check=True,
+    check=False,
 )
 
 # Remove ANSI codes
