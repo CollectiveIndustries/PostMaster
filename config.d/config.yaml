@@ -1,13 +1,33 @@
-imap:
-  host: imap.example.com
+ConnectionSettings:
+  email_address: user@example.com
+  password: change_me
+  url: imap.example.com
   port: 993
-  user: youruser@example.com
-  password: yourpassword
-
-filters:
-  - name: "Delete Spam"
-    criteria: ["Subject:*spam*", "From:*badguy*"]
-    action: delete
-  - name: "Move Newsletters"
-    criteria: ["From:*newsletter*"]
-    action: move:Newsletters
+Folders:
+  inbox: INBOX
+  spam_folder: SPAM
+  ham_folder: HAM
+  unsorted: UNSORTED
+  infected_folder: INFECTED
+  spam_learn: SPAM_LEARN
+  ham_learn: HAM_LEARN
+DaemonSettings:
+  data_path: /var/lib/spamvanquisher/data
+  scan_time: 300
+  batch_size: 100
+EmailParts:
+  use_subject: true
+  use_sender: true
+  use_recipient: false
+  use_body: true
+MySQL:
+  user: SpamVanquisher
+  host: 127.0.0.1
+  database: SpamVanquisher
+  password: change_me
+  port: 3306
+Logging:
+  log_path: logs/SpamVanquisher.log
+  backup_count: 4
+  CheckInterval: 300
+  LogSize: 2g
