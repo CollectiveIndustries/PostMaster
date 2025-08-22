@@ -1,0 +1,110 @@
+repos:
+#  - repo: local
+#    hooks:
+#      - id: unchop
+#        name: Unchop long lines
+#        entry: python scripts/unchop.py
+#        language: system
+#        types: [python]
+#        stages: [pre-commit]
+
+  - repo: https://github.com/ikamensh/flynt
+    rev: 1.0.6
+    hooks:
+      - id: flynt
+        name: Normalize non-logging strings to f-strings
+        entry: flynt
+        language: python
+        language_version: python3.12
+        types: [python]
+        args:
+          - --exclude=.venv
+          - --exclude='.*log\.(debug|info|warning|error|critical).*'
+
+  - repo: https://github.com/pre-commit/mirrors-isort
+    rev: v5.10.1
+    hooks:
+      - id: isort
+        language_version: python3.12
+        exclude: ^\.venv/
+        args:
+          - --line-length=120
+          - --multi-line=3
+          - --trailing-comma
+          - --use-parentheses
+          - --force-grid-wrap=0
+
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        language_version: python3.12
+        exclude: ^\.venv/
+        args:
+          - --line-length=120
+          - --skip-string-normalization
+          - --skip-magic-trailing-comma
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        language_version: python3.12
+        exclude: ^\.venv/
+        args:
+          - --max-line-length=120
+          - --extend-ignore=E501,E203
+
+  - repo: https://github.com/pre-commit/mirrors-pylint
+    rev: v2.7.4
+    hooks:
+      - id: pylint
+        name: Run pylint
+        entry: .venv/bin/pylint
+        language_version: python3.12
+        types: [python]
+        exclude: ^\.venv/
+        args: [--rcfile=.pylintrc, --disable=line-too-long]
+        additional_dependencies:
+          - requests
+          - beautifulsoup4
+          - pyyaml
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        language_version: python3.12
+        args: ['--baseline', '.secrets.baseline']
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+#      - id: fix-logging-fstrings
+#        name: Fix logging f-strings
+#        entry: python scripts/lazy_format.py
+#        language: system
+#        files: \.py$
+#        stages: [pre-commit]
+
+      - id: pytest
+        name: Run unit tests
+        entry: pytest
+        language: python
+        pass_filenames: false
+        types: [python]
+        args: [--maxfail=1, --disable-warnings]
+        language_version: python3.12
+        additional_dependencies:
+          - pytest
+          - requests
+          - beautifulsoup4
+          - pyyaml

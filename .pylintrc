@@ -1,0 +1,41 @@
+[MAIN]
+recursive=y
+
+[MASTER]
+ignore=.venv,__pycache__
+extension-pkg-whitelist=
+load-plugins=pylint.extensions.docparams,pylint.extensions.mccabe,pylint.extensions.typing
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    broad-except,
+    too-many-arguments,
+    too-many-positional-arguments,
+    global-statement,
+    duplicate-code,
+    invalid-name,
+    too-few-public-methods,
+    too-many-instance-attributes,
+    too-many-locals,
+    no-member,
+    fixme,
+    unused-argument,
+    unused-variable
+
+[TYPECHECK]
+generated-members=os.path.*, db_config
+extension-pkg-allow-list=netifaces
+
+[REPORTS]
+output-format=colorized
+reports=no
+score=no
+
+[FORMAT]
+max-line-length=120
+
+[DESIGN]
+max-args=10
