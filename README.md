@@ -1,23 +1,72 @@
-# MailFilter
+# SpamVanquisher
 
-MailFilter is a lightweight Python application that connects to an IMAP server and applies configurable filtering rules on incoming emails. It supports actions like deleting messages, moving them to specific folders, or leaving them untouched.
+SpamVanquisher is a Python-based email classification tool using TensorFlow to detect spam and sort emails into folders. This archive contains all source code, configuration files, and setup instructions.
 
-## Features
-- Configurable IMAP connection
-- YAML-based filter rules
-- Actions: delete, move to folder, mark as read
-- Extendable architecture
+---
 
-## Requirements
-- Python 3.8+
-- `requests`
-- `pyyaml`
+## Dependencies
 
-## Installation
+The following dependencies must be installed for the application to run:
+
+- Python 3.9–3.11
+- MySQL client library (`MySQLdb`)
+- TensorFlow
+- Keras (comes with TensorFlow)
+- Other Python libraries (already included in `requirements.txt`):
+  - `pickle`
+  - `logging`
+  - `threading`
+  - `os`
+  - `typing`
+
+### TensorFlow Installation Options
+
+#### 1. CPU-only (simplest)
 ```bash
-git clone <repo-url> mailfilter
-cd mailfilter
-python3 -m venv .venv
-source .venv/bin/activate
-pip install requests pyyaml
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install tensorflow
 ```
+
+#### 2. GPU-enabled (requires NVIDIA GPU with CUDA & cuDNN)
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install tensorflow[and-cuda]
+```
+
+Verify the installation:
+```bash
+python -c "import tensorflow as tf; print(tf.__version__)"
+```
+
+---
+
+## Setup Instructions
+
+1. Clone or extract the archive.
+2. Create a virtual environment and activate it:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Ensure MySQL server is running and the database is configured (see `lib/config.py` for database settings).
+5. Place training data and logs in the directory specified by `config.TRAINING_DATA_PATH`.
+
+---
+
+## Running the Application
+
+```bash
+python main.py
+```
+
+- The application will connect to the database, train the email classification model, and process incoming emails.
+- To classify emails, ensure the model is trained or loaded first.
+
