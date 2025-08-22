@@ -1,0 +1,13 @@
+imap:
+  host: imap.example.com
+  port: 993
+  user: youruser@example.com
+  password: yourpassword
+
+filters:
+  - name: "Delete Spam"
+    criteria: ["Subject:*spam*", "From:*badguy*"]
+    action: delete
+  - name: "Move Newsletters"
+    criteria: ["From:*newsletter*"]
+    action: move:Newsletters
