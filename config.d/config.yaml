@@ -1,8 +1,14 @@
-ConnectionSettings:
-  email_address: user@example.com
-  password: change_me
-  url: imap.example.com
-  port: 993
+accounts:
+  - provider: gmail
+    email: yourname@gmail.com
+    client_id: "xxxx.apps.googleusercontent.com"
+    client_secret: "xxxx"
+    refresh_token: "xxxx"
+  - provider: outlook
+    email: yourname@hotmail.com
+    client_id: "yyyy"
+    client_secret: "yyyy"
+    refresh_token: "yyyy"
 Folders:
   inbox: INBOX
   spam_folder: SPAM
