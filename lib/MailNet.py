@@ -66,8 +66,10 @@ class MailNet:
 
     def train(self, email_lst: list, labels: list[int], epochs: int = 50, batch_size: int = 64):
         """Train the spam filter model."""
+        logging.info(f"Starting training with {len(email_lst)} emails")
         with self.model_lock:
             if not self.tokenizer.word_index:
+                logging.debug("Initializing tokenizer from training data")
                 self.fit_tokenizer(email_lst)
             valid_data = [
                 (email, label)
@@ -91,8 +93,10 @@ class MailNet:
         """
         Classify a list of Email objects as spam (1) or ham (0) and update their class_id attribute.
         """
+        logging.info(f"Classifying {len(emails)} emails")
         with self.model_lock:
             if not self.model:
+                logging.error("Classification attempt with untrained model")
                 raise ValueError("Model is not trained or loaded.")
 
             # Preprocess data for all emails

@@ -22,9 +22,15 @@ class GmailProvider(MailProvider):
         self.service = build("gmail", "v1", credentials=creds)
 
     def fetch_messages(self, folder: str = "INBOX", limit: int = 50):
-        results = self.service.users().messages().list(userId="me", labelIds=[folder], maxResults=limit).execute()
-        messages = results.get("messages", [])
-        return messages
+        logging.debug(f"Fetching {limit} messages from {folder}")
+        try:
+            results = self.service.users().messages().list(userId="me", labelIds=[folder], maxResults=limit).execute()
+            messages = results.get("messages", [])
+            logging.debug(f"Found {len(messages)} messages in {folder}")
+            return messages
+        except Exception as e:
+            logging.error(f"Gmail API error: {str(e)}")
+            raise
 
     def send_message(self, to: str, subject: str, body: str):
         message = MIMEText(body)

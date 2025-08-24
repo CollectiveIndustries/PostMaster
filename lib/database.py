@@ -18,11 +18,17 @@ class EmailDatabase:
         self.db = MariaModule()
 
     def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
+        logging.debug(f"Adding email hash: {hash_id} for msgid {x_gm_msgid}")
         query = """
             INSERT IGNORE INTO email_hashes (hash_id, x_gm_msgid, classification_id)
             VALUES (%s, %s, %s)
         """
-        self.db.execute(query, (hash_id, x_gm_msgid, classification_id), commit=True)
+        try:
+            result = self.db.execute(query, (hash_id, x_gm_msgid, classification_id), commit=True)
+            logging.debug(f"DB insert affected {result.rowcount} rows")
+        except Exception as e:
+            logging.error(f"Failed to add email hash: {str(e)}")
+            raise
 
     def get_classification(self, x_gm_msgid: str) -> Optional[str]:
         query = "SELECT classification_id FROM email_hashes WHERE x_gm_msgid = %s"
