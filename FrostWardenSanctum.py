@@ -6,6 +6,8 @@ import time
 from lib.config import config
 from lib.yarn import ClassificationThread, LogRotation, TrainerThread
 
+# Version and package metadata
+__version__ = "0.1.0"
 
 # Register signal handler for SIGTERM
 def graceful_shutdown(signum, _frame):
