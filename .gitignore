@@ -18,7 +18,6 @@ env/
 *.env
 
 # IDE configuration files
-.vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
@@ -62,3 +61,4 @@ temp*
 model/*
 *.json
 fetch.py
+.aider*
