@@ -186,7 +186,6 @@ class MailNet:
         if self.model:
             self.model = None
             from keras import backend as K
-            )
 
             K.clear_session()
             import gc

@@ -1,5 +1,6 @@
 # providers/gmail.py
 import base64
+import logging
 from email.mime.text import MIMEText
 
 from google_auth_oauthlib.flow import InstalledAppFlow
