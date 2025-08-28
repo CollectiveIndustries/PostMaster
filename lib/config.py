@@ -46,8 +46,6 @@ class Conf:
         self.SQL_PASSWORD = self._cfg.get_value("MySQL", "password")
         self.SQL_PORT = self._cfg.get_value("MySQL", "port", 3306)
 
-        # Global Application Settings
-
         # Logger settings
         self.LOG_FILE = self._cfg.get_value("Logging", "log_path", "logs/SpamVanquisher.log")
         self.BACKUP_COUNT = self._cfg.get_value("Logging", "backup_count", 4)
@@ -65,14 +63,30 @@ class Conf:
             return int(float(size_str[:-1]) * 1024)
         return int(size_str)
 
+    def db_kwargs(self) -> dict:
+        """Return a kwargs dict for mariadb.connect()"""
+        return {
+            "user": self.SQL_USER,
+            "password": self.SQL_PASSWORD,
+            "host": self.SQL_HOST,
+            "port": self.SQL_PORT,
+            "database": self.SQL_DATABASE,
+        }
 
-# CLI helper
-def parse_args():
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Spam Vanquisher Configuration")
     parser.add_argument("--config", type=str, help="Path to the config YAML file", default=None)
-    return parser.parse_args()
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Set the logging level",
+    )
+    return parser.parse_args(argv)
 
 
-# Initialize configuration with optional CLI override
-args = parse_args()
-config = Conf(config_path=args.config)
+def build_config(argv=None) -> Conf:
+    """Factory function to build Conf from CLI or supplied argv list."""
+    args = parse_args(argv)
+    return Conf(config_path=args.config)

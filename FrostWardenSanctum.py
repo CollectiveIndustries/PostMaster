@@ -9,31 +9,15 @@ from lib.yarn import ClassificationThread, LogRotation, TrainerThread
 # Version and package metadata
 __version__ = "0.1.0"
 
+
 # Register signal handler for SIGTERM
 def graceful_shutdown(signum, _frame):
     logging.info(f"Received signal {signum}, shutting down gracefully.")
-    StopEvent.set()
+    StopEvent.set()  # pylint: disable=possibly-used-before-assignment
 
 
 # Usage Example
 if __name__ == "__main__":
-    # Parse command-line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='FrostWardenSanctum Email Filtering Service')
-    parser.add_argument('--config', help='Path to custom config file')
-    parser.add_argument('--log-level', 
-                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                        default='INFO',
-                        help='Set the logging level')
-    args = parser.parse_args()
-
-    # Initialize logging with specified level
-    logging.basicConfig(
-        level=args.log_level,
-        format=f'%(asctime)s FrostWardenSanctum/{__version__} %(levelname)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    logging.info(f"Initializing FrostWardenSanctum v{__version__} with log level {args.log_level}")
 
     # General configs
     spam_folder = config.SPAM_FOLDER
@@ -41,7 +25,7 @@ if __name__ == "__main__":
     infected_folder = config.INFECTED_FOLDER
     spam_learn = config.SPAM_LEARN
     ham_learn = config.HAM_LEARN
-    mail_que = config.INBOX 
+    mail_que = config.INBOX
     ScanTime = int(config.SCAN_TIME)
 
     # Additional Resources

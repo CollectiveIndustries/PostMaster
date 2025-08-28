@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PostMaster"
+version = "0.1.0"
+description = "PostMaster email handling and classification system"
+authors = [{ name = "Collective Industries" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4",
+    "pyyaml",
+    "CollectiveCore @ git+ssh://git@github.com/CollectiveIndustries/CollectiveCore.git",
+]
+packages = ["lib", "providers"]
+
+[project.scripts]
+frostwarden = "FrostWardenSanctum:main"
+
+[tool.setuptools.package-data]
+lib = ["config.d/*.yaml", "sql/*.sql"]
+include-package-data = true
+zip-safe = false
+
+[tool.isort]
+profile = "black"
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+use_parentheses = true
+force_grid_wrap = 0
+skip = [".venv"]
+
+[tool.black]
+line-length = 120
+skip-string-normalization = true
+skip-magic-trailing-comma = true
+exclude = '''
+/(
+    \.venv
+)/
+'''
+
+[tool.flake8]
+max-line-length = 120
+extend-ignore = ["E501", "E203"]
+
+[tool.pylint.main]
+recursive = true
+
+[tool.pylint.master]
+ignore = [".venv", "__pycache__"]
+load-plugins = [
+  "pylint.extensions.docparams",
+  "pylint.extensions.mccabe",
+  "pylint.extensions.typing"
+]
+
+[tool.pylint.messages_control]
+disable = [
+  "missing-module-docstring",
+  "missing-class-docstring",
+  "missing-function-docstring",
+  "broad-except",
+  "too-many-arguments",
+  "too-many-positional-arguments",
+  "global-statement",
+  "duplicate-code",
+  "invalid-name",
+  "too-few-public-methods",
+  "too-many-instance-attributes",
+  "too-many-locals",
+  "no-member",
+  "fixme",
+  "unused-argument",
+  "unused-variable"
+]
+
+[tool.pylint.typecheck]
+generated-members = ["os.path.*", "db_config"]
+extension-pkg-allow-list = ["netifaces"]
+
+[tool.pylint.reports]
+output-format = "colorized"
+reports = "no"
+score = "no"
+
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint.design]
+max-args = 10
+
+[tool.pytest.ini_options]
+addopts = "-ra -q --maxfail=1 --disable-warnings"
+testpaths = ["tests"]
+
+[tool.detect-secrets]
+baseline = ".secrets.baseline"
