@@ -62,3 +62,6 @@ temp*
 model/*
 *.json
 fetch.py
+
+# AI TOOLS
+*.aider*
