@@ -22,7 +22,17 @@ def log_progress(index, total, start_time, stage="Processing"):
     # ... rest of the code ...
 
 def interruptible_sleep(duration, stop_event):
-    # ... rest of the code ...
+    """
+    An interruptible sleep function that can be stopped by a provided event.
+
+    Args:
+        duration (float): The duration for which to sleep in seconds.
+        stop_event (threading.Event): An event that can be set to stop the sleep.
+    """
+    start_time = time.time()
+    elapsed_time = 0
+    while elapsed_time < duration and not stop_event.wait(1):
+        elapsed_time += 1
 
 def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> dict:
     # ... rest of the code ...
