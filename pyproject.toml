@@ -15,15 +15,19 @@ dependencies = [
     "pyyaml",
     "CollectiveCore @ git+ssh://git@github.com/CollectiveIndustries/CollectiveCore.git",
 ]
-packages = ["lib", "providers"]
 
 [project.scripts]
 frostwarden = "FrostWardenSanctum:main"
 
-[tool.setuptools.package-data]
-lib = ["config.d/*.yaml", "sql/*.sql"]
+[tool.setuptools]
 include-package-data = true
 zip-safe = false
+
+[tool.setuptools.package-data]
+lib = ["config.d/*.yaml", "sql/*.sql"]
+
+[tool.setuptools.packages.find]
+include = ["lib*", "providers*"]
 
 [tool.isort]
 profile = "black"
