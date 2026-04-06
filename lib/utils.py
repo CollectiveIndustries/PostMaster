@@ -1,50 +1,79 @@
 from __future__ import annotations  # Allows forward declarations
 
 import logging
-import re
 import time
 
 from .config import config
 
-def normalize_email(email: str) -> str:
-    """
-    Normalizes an email address by converting it to lowercase and removing any extra whitespace.
-
-    Args:
-        email (str): The email address to be normalized.
-
-    Returns:
-        str: The normalized email address.
-    """
-    return email.lower().strip()
 
 def log_progress(index, total, start_time, stage="Processing"):
-    # ... rest of the code ...
+    """
+    Logs progress and estimated time to completion (ETC) for a loop.
+
+    Args:
+        index (int): The current iteration count (1-based index).
+        total (int): The total number of iterations.
+        start_time (float): The timestamp when the loop started.
+        stage (str): The current stage or task being logged (default is "Processing").
+    """
+    elapsed_time = time.time() - start_time
+    avg_time_per_item = elapsed_time / index if index > 0 else 0
+    remaining_items = total - index
+    etc = remaining_items * avg_time_per_item
+
+    # Format the timedelta into days, hours, minutes, and seconds
+    days = int(etc // (24 * 3600))
+    hours = int((etc % (24 * 3600)) // 3600)
+    minutes = int((etc % 3600) // 60)
+    seconds = int(etc % 60)
+
+    # Build the formatted output
+    if days > 0:
+        formatted_etc = f"{days} days, {hours:02}:{minutes:02}:{seconds:02}"
+    else:
+        formatted_etc = f"{hours:02}:{minutes:02}:{seconds:02}"
+
+    # Log the progress and estimated time to completion with the stage
+    logging.info(
+        f"[{stage}] Processed {index}/{total} items "
+        f"({index / total:.2%} complete). "
+        f"Estimated time till completion: {formatted_etc}"
+    )
+
 
 def interruptible_sleep(duration, stop_event):
-    """
-    An interruptible sleep function that can be stopped by a provided event.
+    """Sleeps for the given duration in small intervals, allowing interruption."""
+    interval = 0.1  # Check the stop_event every 0.1 seconds
+    elapsed = 0
 
-    Args:
-        duration (float): The duration for which to sleep in seconds.
-        stop_event (threading.Event): An event that can be set to stop the sleep.
-    """
-    start_time = time.time()
-    elapsed_time = 0
-    while elapsed_time < duration and not stop_event.wait(1):
-        elapsed_time += 1
+    while elapsed < duration:
+        if stop_event.is_set():
+            return
+        time.sleep(interval)
+        elapsed += interval
+
 
 def sort_emails_by_folder(all_mail: list[Email], classification_map: dict) -> dict:
-    # ... rest of the code ...
-
-def normalize_emails(emails: list[str]) -> list[str]:
     """
-    Normalizes a list of email addresses by converting each one to lowercase and removing any extra whitespace.
+    Sorts email objects into lists based on their classification attributes.
 
     Args:
-        emails (list): A list of email addresses to be normalized.
+        all_mail (list): A list of email objects with classification_id attributes.
+        classification_map (dict): A mapping of classification_id to folder_name.
 
     Returns:
-        list: The normalized list of email addresses.
+        dict: A dictionary where keys are folder names and values are lists of email objects for each folder.
     """
-    return [normalize_email(email) for email in emails]
+
+    classification_map = {int(k): v for k, v in classification_map.items()}
+
+    # Initialize the result dictionary with empty lists for each folder_name
+    sorted_emails = {folder_name: [] for folder_name in classification_map.values()}
+    sorted_emails[config.UNSORTED] = []  # Add a default folder for unmatched emails
+
+    # Iterate through emails and sort them based on classification_id
+    for email in all_mail:
+        folder_name = classification_map.get(email.class_id, config.UNSORTED)
+        sorted_emails[folder_name].append(email)
+
+    return sorted_emails
