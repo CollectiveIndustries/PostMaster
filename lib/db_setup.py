@@ -79,7 +79,7 @@ def wait_for_mariadb(timeout: int = 30, sudo_pass=None) -> bool:
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            run_cmd(["mysqladmin", "ping", "--silent"], sudo_pass=sudo_pass)
+            run_cmd(["mysqladmin", "-u", "root", "ping", "--silent"], sudo_pass=sudo_pass)
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):
             time.sleep(1)
@@ -102,15 +102,15 @@ def provision_database(sql_path: str = "sql/install.sql", sudo_pass=None) -> boo
         with open(sql_file, "r", encoding="utf-8") as f:
             sql_content = f.read()
         run_cmd(
-            ["mysql", "--default-character-set=utf8mb4"], 
+            ["mysql", "-u", "root", "--default-character-set=utf8mb4"], 
             sudo_pass=sudo_pass,
             stdin_data=sql_content
         )
         logger.info("Database provisioning completed successfully.")
         return True
     except subprocess.CalledProcessError as e:
-        stderr = e.stderr.decode("utf-8", errors="replace")
-        logger.error(f"Database provisioning failed: {stderr}")
+        # Since text=True is used in run_cmd, e.stderr is already a string
+        logger.error(f"Database provisioning failed: {e.stderr}")
         return False
 
 def ensure_database_ready() -> bool:
@@ -140,7 +140,7 @@ def ensure_database_ready() -> bool:
     logger.info("MariaDB is running. Checking database provisioning...")
     try:
         result = run_cmd(
-            ["mysql", "-e", "SHOW DATABASES LIKE 'SpamVanquisher';"],
+            ["mysql", "-u", "root", "-e", "SHOW DATABASES LIKE 'SpamVanquisher';"],
             sudo_pass=sudo_pass
         )
         if "SpamVanquisher" not in result.stdout:
@@ -150,7 +150,8 @@ def ensure_database_ready() -> bool:
             logger.info("Database 'SpamVanquisher' already exists. Skipping provisioning.")
             return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to verify database existence: {e.stderr.decode()}")
+        # Since text=True is used in run_cmd, e.stderr is already a string
+        logger.error(f"Failed to verify database existence: {e.stderr}")
         return False
     except FileNotFoundError:
         logger.error("MySQL client tools not found. Please install mariadb-client or mysql-client.")
