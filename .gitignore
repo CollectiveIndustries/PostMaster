@@ -62,3 +62,8 @@ model/*
 *.json
 fetch.py
 .aider*
+logging
+signal
+sys
+threading
+time
