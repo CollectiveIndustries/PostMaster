@@ -1,3 +1,10 @@
+database:
+  user: postmaster_user
+  password: qa9CvLz8Nv3wcyBr9TAS6TzkCaEmRHZA
+  host: localhost
+  database: postmaster_db
+  port: 3306
+
 accounts:
   - provider: gmail
     email: yourname@gmail.com
