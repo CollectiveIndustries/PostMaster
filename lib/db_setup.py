@@ -24,13 +24,23 @@ def load_env(env_path=".env"):
 
 def run_cmd(cmd, sudo_pass=None, check=True, stdin_data=None):
     """Execute a command, optionally with sudo using the provided password."""
-    input_data = stdin_data
-    if sudo_pass:
+    # Check if sudo credentials are already cached to avoid password leakage
+    # and prevent the password from being passed to the child process's stdin.
+    needs_pass = False
+    try:
+        subprocess.run(["sudo", "-n", "true"], check=True, capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        needs_pass = True
+
+    if needs_pass and sudo_pass:
         cmd = ["sudo", "-S"] + cmd
-        if input_data:
-            input_data = f"{sudo_pass}\n{input_data}"
-        else:
-            input_data = f"{sudo_pass}\n"
+        input_data = f"{sudo_pass}\n"
+        if stdin_data:
+            input_data += stdin_data
+    else:
+        # Sudo is cached or not needed, run normally without -S
+        cmd = ["sudo"] + cmd
+        input_data = stdin_data
 
     try:
         return subprocess.run(
@@ -41,9 +51,14 @@ def run_cmd(cmd, sudo_pass=None, check=True, stdin_data=None):
             check=check
         )
     except subprocess.CalledProcessError as e:
-        if sudo_pass and "incorrect password" in e.stderr.lower():
+        # Sanitize stderr to prevent password leakage in logs
+        stderr_msg = e.stderr
+        if sudo_pass and sudo_pass in stderr_msg:
+            stderr_msg = stderr_msg.replace(sudo_pass, "********")
+        if "incorrect password" in stderr_msg.lower():
             logger.error("Sudo password incorrect.")
-        raise
+        # Re-raise with sanitized stderr
+        raise subprocess.CalledProcessError(e.returncode, e.cmd, output=e.stdout, stderr=stderr_msg) from e
 
 def start_mariadb_service(sudo_pass=None) -> bool:
     """Attempt to start the local MariaDB server using common service managers."""
@@ -109,7 +124,6 @@ def provision_database(sql_path: str = "sql/install.sql", sudo_pass=None) -> boo
         logger.info("Database provisioning completed successfully.")
         return True
     except subprocess.CalledProcessError as e:
-        # Since text=True is used in run_cmd, e.stderr is already a string
         logger.error(f"Database provisioning failed: {e.stderr}")
         return False
 
@@ -150,7 +164,6 @@ def ensure_database_ready() -> bool:
             logger.info("Database 'SpamVanquisher' already exists. Skipping provisioning.")
             return True
     except subprocess.CalledProcessError as e:
-        # Since text=True is used in run_cmd, e.stderr is already a string
         logger.error(f"Failed to verify database existence: {e.stderr}")
         return False
     except FileNotFoundError:
