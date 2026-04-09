@@ -90,3 +90,6 @@ def build_config(argv=None) -> Conf:
     """Factory function to build Conf from CLI or supplied argv list."""
     args = parse_args(argv)
     return Conf(config_path=args.config)
+
+# Module-level singleton instance for easy importing
+config = Conf()
