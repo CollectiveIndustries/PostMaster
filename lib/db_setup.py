@@ -7,7 +7,45 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-def start_mariadb_service() -> bool:
+def load_env(env_path=".env"):
+    """Load environment variables from a .env file."""
+    env_vars = {}
+    env_file = Path(env_path)
+    if not env_file.is_absolute():
+        env_file = Path(__file__).resolve().parent.parent / env_path
+    if env_file.exists():
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    env_vars[key.strip()] = value.strip().strip('"').strip("'")
+    return env_vars
+
+def run_cmd(cmd, sudo_pass=None, check=True, stdin_data=None):
+    """Execute a command, optionally with sudo using the provided password."""
+    input_data = stdin_data
+    if sudo_pass:
+        cmd = ["sudo", "-S"] + cmd
+        if input_data:
+            input_data = f"{sudo_pass}\n{input_data}"
+        else:
+            input_data = f"{sudo_pass}\n"
+
+    try:
+        return subprocess.run(
+            cmd,
+            input=input_data,
+            text=True,
+            capture_output=True,
+            check=check
+        )
+    except subprocess.CalledProcessError as e:
+        if sudo_pass and "incorrect password" in e.stderr.lower():
+            logger.error("Sudo password incorrect.")
+        raise
+
+def start_mariadb_service(sudo_pass=None) -> bool:
     """Attempt to start the local MariaDB server using common service managers."""
     commands = [
         ["systemctl", "start", "mariadb"],
@@ -18,7 +56,7 @@ def start_mariadb_service() -> bool:
     
     for cmd in commands:
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            run_cmd(cmd, sudo_pass=sudo_pass)
             logger.info(f"MariaDB started via: {' '.join(cmd)}")
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -36,22 +74,18 @@ def start_mariadb_service() -> bool:
         logger.error(f"Failed to start MariaDB via mysqld_safe: {e}")
         return False
 
-def wait_for_mariadb(timeout: int = 30) -> bool:
+def wait_for_mariadb(timeout: int = 30, sudo_pass=None) -> bool:
     """Poll until MariaDB accepts connections or timeout is reached."""
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            subprocess.run(
-                ["mysqladmin", "ping", "--silent"], 
-                check=True, 
-                capture_output=True
-            )
+            run_cmd(["mysqladmin", "ping", "--silent"], sudo_pass=sudo_pass)
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):
             time.sleep(1)
     return False
 
-def provision_database(sql_path: str = "sql/install.sql") -> bool:
+def provision_database(sql_path: str = "sql/install.sql", sudo_pass=None) -> bool:
     """Execute the SQL installation script to provision the database."""
     if not os.path.isabs(sql_path):
         base_dir = Path(__file__).resolve().parent.parent
@@ -66,12 +100,12 @@ def provision_database(sql_path: str = "sql/install.sql") -> bool:
     logger.info(f"Provisioning database using {sql_file}...")
     try:
         with open(sql_file, "r", encoding="utf-8") as f:
-            subprocess.run(
-                ["mysql", "--default-character-set=utf8mb4"], 
-                stdin=f, 
-                check=True, 
-                capture_output=True
-            )
+            sql_content = f.read()
+        run_cmd(
+            ["mysql", "--default-character-set=utf8mb4"], 
+            sudo_pass=sudo_pass,
+            stdin_data=sql_content
+        )
         logger.info("Database provisioning completed successfully.")
         return True
     except subprocess.CalledProcessError as e:
@@ -88,26 +122,30 @@ def ensure_database_ready() -> bool:
     if not logging.getLogger().hasHandlers():
         logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(message)s')
 
+    # Load sudo password from .env
+    env_vars = load_env()
+    sudo_pass = env_vars.get("SUDO_PASS")
+
     logger.info("Checking MariaDB availability...")
-    if not wait_for_mariadb(timeout=5):
+    if not wait_for_mariadb(timeout=5, sudo_pass=sudo_pass):
         logger.warning("MariaDB is not responding. Attempting to start service...")
-        if not start_mariadb_service():
+        if not start_mariadb_service(sudo_pass=sudo_pass):
             logger.error("Failed to start MariaDB automatically. Please start it manually.")
             return False
             
-        if not wait_for_mariadb(timeout=30):
+        if not wait_for_mariadb(timeout=30, sudo_pass=sudo_pass):
             logger.error("MariaDB failed to become ready within timeout.")
             return False
             
     logger.info("MariaDB is running. Checking database provisioning...")
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ["mysql", "-e", "SHOW DATABASES LIKE 'SpamVanquisher';"],
-            capture_output=True, text=True, check=True
+            sudo_pass=sudo_pass
         )
         if "SpamVanquisher" not in result.stdout:
             logger.info("Database 'SpamVanquisher' not found. Running provisioning...")
-            return provision_database()
+            return provision_database(sudo_pass=sudo_pass)
         else:
             logger.info("Database 'SpamVanquisher' already exists. Skipping provisioning.")
             return True
