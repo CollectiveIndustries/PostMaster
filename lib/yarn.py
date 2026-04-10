@@ -348,7 +348,7 @@ class ClassificationThread(ThreadBase):
             logging.info("Shutting down classification thread! Waiting for other threads to finish.")
             self.ThreadSleep()
 
-        except Exception as e:
+        except Exception:
             logging.error("Error in classification thread.", exc_info=True)
             self.stop_event.set()
 
