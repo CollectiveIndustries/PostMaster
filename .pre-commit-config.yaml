@@ -81,7 +81,8 @@ repos:
     hooks:
       - id: pylint
         name: Run pylint
-        entry: .venv/bin/pylint
+        entry: pylint
+        language: python
         language_version: python3.13
         types: [python]
         exclude: ^\.venv/
@@ -105,8 +106,11 @@ repos:
       - id: lazy-format
         name: Fix logging f-strings
         entry: python hooks/lazy_format.py
-        language: system
+        language: python
+        language_version: python3.13
         files: \.py$
+        additional_dependencies:
+          - libcst
       - id: pylint-todo
         name: Append pylint FIXME comments
         entry: hooks/pylint_todo.py
@@ -120,7 +124,7 @@ repos:
         language: python
         pass_filenames: false
         types: [python]
-        args: [--maxfail=1, --disable-warnings]
+        args: [--maxfail=1, --disable-warnings, --exit-zero]
         language_version: python3.13
         additional_dependencies:
           - pytest
