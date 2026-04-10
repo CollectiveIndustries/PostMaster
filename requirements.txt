@@ -1,3 +1,16 @@
+# Core ML & Data Processing
 tensorflow==2.18.0
+
+# Email Providers & APIs
 google-auth-oauthlib
 google-api-python-client
+msal
+requests
+
+# Database & Configuration
+mariadb
+PyYAML
+
+# Development, Linting & Hooks
+libcst
+pylint
