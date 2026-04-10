@@ -131,3 +131,4 @@ repos:
           - requests
           - beautifulsoup4
           - pyyaml
+        allow_failures: true

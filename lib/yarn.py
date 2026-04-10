@@ -509,7 +509,8 @@ class LogRotation(threading.Thread):
                         shutil.copyfileobj(f_in, f_out)
                 logging.info("Archived current log file as daily log: %s", daily_log)
                 # Clear the current log file
-                open(self.log_file, 'w', encoding='utf-8').close()
+                with open(self.log_file, 'w', encoding='utf-8') as _:
+                    pass
 
             # Manage weekly and monthly logs
             if now.weekday() == 0:  # If it's Monday, create a weekly log
