@@ -7,8 +7,8 @@ database:
 
 accounts:
   - provider: gmail
-    email: admmorketh@gmail.com
-    password: "jpzg tspt vvxe opna"  # Your 16-character App Password (with or without spaces)
+    email: yourname@gmail.com
+    password: "your_regular_password_or_app_password"  # Your 16-character App Password (with or without spaces)
     imap_server: imap.gmail.com
     imap_port: 993
     smtp_server: smtp.gmail.com
@@ -20,6 +20,7 @@ accounts:
     imap_port: 993
     smtp_server: smtp-mail.outlook.com
     smtp_port: 587
+
 Folders:
   inbox: INBOX
   spam_folder: SPAM
@@ -28,21 +29,25 @@ Folders:
   infected_folder: INFECTED
   spam_learn: SPAM_LEARN
   ham_learn: HAM_LEARN
+
 DaemonSettings:
   data_path: /var/lib/spamvanquisher/data
   scan_time: 300
   batch_size: 100
+
 EmailParts:
   use_subject: true
   use_sender: true
   use_recipient: false
   use_body: true
+
 MySQL:
   user: SpamVanquisher
   host: 127.0.0.1
   database: SpamVanquisher
   password: change_me
   port: 3306
+
 Logging:
   log_path: logs/SpamVanquisher.log
   backup_count: 4

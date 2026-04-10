@@ -16,9 +16,10 @@ class GmailProvider(MailProvider):
         super().__init__(config)
         self.imap_conn = None
         self.smtp_conn = None
-        self.email = config.get("email")
-        # App passwords may contain spaces; strip them for authentication
-        self.password = config.get("password", "").replace(" ", "")
+        self.email = config.get("email") or ""
+        # App passwords may contain spaces; strip them for authentication.
+        # Use `or ""` to safely handle cases where the key exists but the value is explicitly None.
+        self.password = str(config.get("password") or "").replace(" ", "")
         self.imap_server = config.get("imap_server", "imap.gmail.com")
         self.imap_port = int(config.get("imap_port", 993))
         self.smtp_server = config.get("smtp_server", "smtp.gmail.com")
@@ -26,6 +27,9 @@ class GmailProvider(MailProvider):
 
     def authenticate(self):
         """Authenticate to Gmail using IMAP and SMTP with an App Password."""
+        if not self.email or not self.password:
+            raise ValueError("Gmail email and password must be provided in configuration.")
+
         logging.info(f"Authenticating to Gmail IMAP/SMTP for {self.email}...")
         try:
             self.imap_conn = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
