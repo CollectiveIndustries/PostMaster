@@ -17,9 +17,14 @@ class GmailProvider(MailProvider):
         self.imap_conn = None
         self.smtp_conn = None
         self.email = config.get("email") or ""
-        # App passwords may contain spaces; strip them for authentication.
-        # Use `or ""` to safely handle cases where the key exists but the value is explicitly None.
-        self.password = str(config.get("password") or "").replace(" ", "")
+        
+        # Safely handle password which might be None, missing, or contain spaces
+        raw_password = config.get("password")
+        if isinstance(raw_password, str):
+            self.password = raw_password.replace(" ", "")
+        else:
+            self.password = ""
+            
         self.imap_server = config.get("imap_server", "imap.gmail.com")
         self.imap_port = int(config.get("imap_port", 993))
         self.smtp_server = config.get("smtp_server", "smtp.gmail.com")
@@ -30,13 +35,13 @@ class GmailProvider(MailProvider):
         if not self.email or not self.password:
             raise ValueError("Gmail email and password must be provided in configuration.")
 
-        logging.info(f"Authenticating to Gmail IMAP/SMTP for {self.email}...")
+        logging.info("Authenticating to Gmail IMAP/SMTP for %s...", self.email)
         try:
             self.imap_conn = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
             self.imap_conn.login(self.email, self.password)
             logging.info("IMAP authentication successful.")
         except Exception as e:
-            logging.error(f"IMAP authentication failed: {e}")
+            logging.error("IMAP authentication failed: %s", e)
             raise
 
         try:
@@ -45,7 +50,7 @@ class GmailProvider(MailProvider):
             self.smtp_conn.login(self.email, self.password)
             logging.info("SMTP authentication successful.")
         except Exception as e:
-            logging.error(f"SMTP authentication failed: {e}")
+            logging.error("SMTP authentication failed: %s", e)
             raise
 
     def fetch_messages(self, folder: str = "INBOX", limit: int = 50):
@@ -83,4 +88,4 @@ class GmailProvider(MailProvider):
         msg["To"] = to
 
         self.smtp_conn.sendmail(self.email, [to], msg.as_string())
-        logging.info(f"Email sent to {to}")
+        logging.info("Email sent to %s", to)
