@@ -66,7 +66,9 @@ class EmailDatabase:
             # Avoid duplicate folder
             check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
             if self.db.execute(check_query, (classification_id, folder_name), fetch=True):
-                logging.warning("Folder '%s' with classification ID '%s' already exists.", folder_name, classification_id)
+                logging.warning(
+                    "Folder '%s' with classification ID '%s' already exists.", folder_name, classification_id
+                )
                 return
 
             # Ensure classification exists
