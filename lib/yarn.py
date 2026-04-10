@@ -108,7 +108,7 @@ class ThreadBase(threading.Thread):
         Cleans up the connections to email server, database, and model resources.
         """
         try:
-            if self.email_db:
+            if self.email_db and hasattr(self.email_db, 'close'):
                 logging.info("Closing database connection...")
                 self.email_db.close()
         except Exception as e:
@@ -117,8 +117,10 @@ class ThreadBase(threading.Thread):
         try:
             if self.post_office:
                 logging.info("Closing IMAP connection...")
-                self.post_office.close()
-                self.post_office.logout()
+                if hasattr(self.post_office, 'close'):
+                    self.post_office.close()
+                if hasattr(self.post_office, 'logout'):
+                    self.post_office.logout()
         except Exception as e:
             logging.error(f"Error closing IMAP connection: {e}", exc_info=True)
 
@@ -465,8 +467,11 @@ class LogRotation(threading.Thread):
                         logging.warning(f"Log file size exceeded threshold: {log_file}")
                         self.rotate()
                 else:
-                    with open(log_file, 'w') as log_file:
-                        log_file.write("")  # Initialize an empty log file
+                    log_dir = os.path.dirname(log_file)
+                    if log_dir:
+                        os.makedirs(log_dir, exist_ok=True)
+                    with open(log_file, 'w') as f:
+                        f.write("")  # Initialize an empty log file
             except Exception as e:
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
             interruptible_sleep(config.CHECK_INTERVAL, self.stop_event)

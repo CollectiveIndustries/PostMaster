@@ -41,6 +41,16 @@ class PostOffice:
         """Send a message via the provider."""
         return self.provider.send_message(to=to, subject=subject, body=body)
 
+    def close(self):
+        """Close the connection to the provider."""
+        if hasattr(self.provider, 'close'):
+            self.provider.close()
+
+    def logout(self):
+        """Logout from the provider."""
+        if hasattr(self.provider, 'logout'):
+            self.provider.logout()
+
 
 class Email:
     def __init__(
