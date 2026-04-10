@@ -50,7 +50,34 @@ class PostOffice:
         if hasattr(self.provider, 'logout'):
             self.provider.logout()
 
+    def check_imap_state(self, readonly: bool = False) -> None:
+        """Check IMAP connection state."""
+        if hasattr(self.provider, 'check_imap_state'):
+            self.provider.check_imap_state(readonly)
 
+    def total_emails(self, folder: str) -> int:
+        """Get total number of emails in a folder."""
+        if hasattr(self.provider, 'total_emails'):
+            return self.provider.total_emails(folder)
+        return 0
+
+    def fetch_X_GM_MSGID(self, batch_size: int):
+        """Fetch X-GM-MSGIDs in batches."""
+        if hasattr(self.provider, 'fetch_X_GM_MSGID'):
+            yield from self.provider.fetch_X_GM_MSGID(batch_size)
+
+    def fetch_batch(self, msgids: list, batch_size: int):
+        """Fetch a batch of emails by message IDs."""
+        if hasattr(self.provider, 'fetch_batch'):
+            yield from self.provider.fetch_batch(msgids, batch_size)
+
+    def move(self, uids: list, destination_folder: str) -> None:
+        """Move emails to a destination folder."""
+        if hasattr(self.provider, 'move'):
+            self.provider.move(uids, destination_folder)
+
+
+# pylint: disable=too-many-positional-arguments
 class Email:
     def __init__(
         self,

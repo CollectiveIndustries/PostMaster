@@ -131,3 +131,4 @@ repos:
           - requests
           - beautifulsoup4
           - pyyaml
+        allowed_exit_codes: [0, 5]

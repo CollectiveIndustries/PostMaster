@@ -27,6 +27,16 @@ class EmailDatabase:
         except Exception as e:
             logging.debug("Database connection close skipped or failed: %s", e)
 
+    def check_and_reconnect(self) -> None:
+        """Check database connection and reconnect if necessary."""
+        if hasattr(self.db, 'check_and_reconnect'):
+            self.db.check_and_reconnect()
+        elif hasattr(self.db, 'conn') and hasattr(self.db.conn, 'ping'):
+            try:
+                self.db.conn.ping(reconnect=True)
+            except Exception:
+                pass
+
     def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
         logging.debug("Adding email hash: %s for msgid %s", hash_id, x_gm_msgid)
         query = """

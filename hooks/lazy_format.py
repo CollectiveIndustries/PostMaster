@@ -17,7 +17,7 @@ class LoggingFstringTransformer(cst.CSTTransformer):
         log.info("Failed: %s", var)
     """
 
-    def leave_Call(self, original_node, updated_node):
+    def leave_Call(self, _original_node, updated_node):
         # Check for logging calls
         if m.matches(updated_node, m.Call(func=m.Attribute(value=m.Attribute(attr=m.Name("log")), attr=m.Name()))):
             func_attr = updated_node.func.attr.value

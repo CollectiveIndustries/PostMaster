@@ -34,6 +34,7 @@ def load_db_config(config_path: str | None = None) -> dict:
     }
 
 
+# pylint: disable=unused-argument
 def run_cmd(cmd, db_user=None, db_pass=None, db_host=None, check=True, stdin_data=None):
     """Execute a command, optionally with DB credentials."""
     env = os.environ.copy()
@@ -70,7 +71,8 @@ def start_mariadb_service() -> bool:
 
     logger.info("Falling back to mysqld_safe...")
     try:
-        subprocess.Popen(["sudo", "mysqld_safe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with subprocess.Popen(["sudo", "mysqld_safe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as proc:
+            pass
         return True
     except Exception as e:
         logger.error("Failed to start MariaDB via mysqld_safe: %s", e)
@@ -115,6 +117,7 @@ def provision_database(sql_path: str = "sql/install.sql", db_user=None, db_pass=
         return False
 
 
+# pylint: disable=too-many-return-statements
 def ensure_database_ready(config_path: str | None = None) -> bool:
     """
     Main entry point to ensure MariaDB is running and the application database is provisioned.

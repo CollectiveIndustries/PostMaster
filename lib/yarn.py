@@ -470,7 +470,7 @@ class LogRotation(threading.Thread):
                     log_dir = os.path.dirname(log_file)
                     if log_dir:
                         os.makedirs(log_dir, exist_ok=True)
-                    with open(log_file, 'w') as f:
+                    with open(log_file, 'w', encoding='utf-8') as f:
                         f.write("")  # Initialize an empty log file
             except Exception as e:
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
@@ -509,7 +509,8 @@ class LogRotation(threading.Thread):
                         shutil.copyfileobj(f_in, f_out)
                 logging.info("Archived current log file as daily log: %s", daily_log)
                 # Clear the current log file
-                open(self.log_file, 'w').close()
+                with open(self.log_file, 'w', encoding='utf-8') as f:
+                    pass
 
             # Manage weekly and monthly logs
             if now.weekday() == 0:  # If it's Monday, create a weekly log
