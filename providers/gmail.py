@@ -1,42 +1,82 @@
-# providers/gmail.py
-import base64
+import imaplib
 import logging
+import smtplib
 from email.mime.text import MIMEText
-
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 
 from .base import MailProvider
 
 
 class GmailProvider(MailProvider):
-    SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+    """
+    Gmail provider using standard IMAP/SMTP with App Passwords.
+    No OAuth2 or Google Cloud API required. Operates like a traditional desktop client.
+    """
 
     def __init__(self, config: dict):
         super().__init__(config)
-        self.service = None
+        self.imap_conn = None
+        self.smtp_conn = None
+        self.email = config.get("email")
+        # App passwords may contain spaces; strip them for authentication
+        self.password = config.get("password", "").replace(" ", "")
+        self.imap_server = config.get("imap_server", "imap.gmail.com")
+        self.imap_port = int(config.get("imap_port", 993))
+        self.smtp_server = config.get("smtp_server", "smtp.gmail.com")
+        self.smtp_port = int(config.get("smtp_port", 587))
 
     def authenticate(self):
-        """Authenticate to Gmail using OAuth2 flow."""
-        flow = InstalledAppFlow.from_client_secrets_file(self.config["credentials_file"], self.SCOPES)
-        creds = flow.run_local_server(port=0)
-        self.service = build("gmail", "v1", credentials=creds)
-
-    def fetch_messages(self, folder: str = "INBOX", limit: int = 50):
-        logging.debug(f"Fetching {limit} messages from {folder}")
+        """Authenticate to Gmail using IMAP and SMTP with an App Password."""
+        logging.info(f"Authenticating to Gmail IMAP/SMTP for {self.email}...")
         try:
-            results = self.service.users().messages().list(userId="me", labelIds=[folder], maxResults=limit).execute()
-            messages = results.get("messages", [])
-            logging.debug(f"Found {len(messages)} messages in {folder}")
-            return messages
+            self.imap_conn = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
+            self.imap_conn.login(self.email, self.password)
+            logging.info("IMAP authentication successful.")
         except Exception as e:
-            logging.error(f"Gmail API error: {str(e)}")
+            logging.error(f"IMAP authentication failed: {e}")
             raise
 
+        try:
+            self.smtp_conn = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            self.smtp_conn.starttls()
+            self.smtp_conn.login(self.email, self.password)
+            logging.info("SMTP authentication successful.")
+        except Exception as e:
+            logging.error(f"SMTP authentication failed: {e}")
+            raise
+
+    def fetch_messages(self, folder: str = "INBOX", limit: int = 50):
+        """Fetch raw email bytes from the specified folder."""
+        if not self.imap_conn:
+            raise RuntimeError("Not authenticated. Call authenticate() first.")
+
+        status, _ = self.imap_conn.select(folder, readonly=True)
+        if status != "OK":
+            raise RuntimeError(f"Failed to select folder: {folder}")
+
+        status, data = self.imap_conn.search(None, "ALL")
+        if status != "OK":
+            return []
+
+        msg_ids = data[0].split()
+        # Fetch the most recent messages up to the limit
+        target_ids = msg_ids[-limit:] if len(msg_ids) > limit else msg_ids
+
+        messages = []
+        for msg_id in target_ids:
+            status, msg_data = self.imap_conn.fetch(msg_id, "(RFC822)")
+            if status == "OK" and msg_data[0] is not None:
+                messages.append(msg_data[0][1])
+        return messages
+
     def send_message(self, to: str, subject: str, body: str):
-        message = MIMEText(body)
-        message["to"] = to
-        message["subject"] = subject
-        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-        sent = self.service.users().messages().send(userId="me", body={"raw": raw}).execute()
-        return sent
+        """Send an email message via SMTP."""
+        if not self.smtp_conn:
+            raise RuntimeError("Not authenticated. Call authenticate() first.")
+
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = self.email
+        msg["To"] = to
+
+        self.smtp_conn.sendmail(self.email, [to], msg.as_string())
+        logging.info(f"Email sent to {to}")
