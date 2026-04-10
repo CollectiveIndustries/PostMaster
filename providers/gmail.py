@@ -17,14 +17,14 @@ class GmailProvider(MailProvider):
         self.imap_conn = None
         self.smtp_conn = None
         self.email = config.get("email") or ""
-        
+
         # Safely handle password which might be None, missing, or contain spaces
         raw_password = config.get("password")
         if isinstance(raw_password, str):
             self.password = raw_password.replace(" ", "")
         else:
             self.password = ""
-            
+
         self.imap_server = config.get("imap_server", "imap.gmail.com")
         self.imap_port = int(config.get("imap_port", 993))
         self.smtp_server = config.get("smtp_server", "smtp.gmail.com")
