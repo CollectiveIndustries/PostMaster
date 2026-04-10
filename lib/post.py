@@ -5,7 +5,6 @@ High-level PostOffice interface that delegates to provider implementations
 """
 
 import email
-from email.message import EmailMessage as PyEmailMessage
 from typing import Dict, List, Optional
 
 from bs4 import BeautifulSoup
@@ -84,7 +83,7 @@ class Email:
     @classmethod
     def from_mime(cls, raw: bytes):
         """Parse RFC822/MIME into Email object."""
-        msg: PyEmailMessage = email.message_from_bytes(raw)
+        msg = email.message_from_bytes(raw)
 
         # Collect headers
         headers = dict(msg.items())

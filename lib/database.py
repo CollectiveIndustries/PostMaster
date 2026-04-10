@@ -25,19 +25,19 @@ class EmailDatabase:
             elif hasattr(self.db, 'conn') and hasattr(self.db.conn, 'close'):
                 self.db.conn.close()
         except Exception as e:
-            logging.debug(f"Database connection close skipped or failed: {e}")
+            logging.debug("Database connection close skipped or failed: %s", e)
 
     def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
-        logging.debug(f"Adding email hash: {hash_id} for msgid {x_gm_msgid}")
+        logging.debug("Adding email hash: %s for msgid %s", hash_id, x_gm_msgid)
         query = """
             INSERT IGNORE INTO email_hashes (hash_id, x_gm_msgid, classification_id)
             VALUES (%s, %s, %s)
         """
         try:
             result = self.db.execute(query, (hash_id, x_gm_msgid, classification_id), commit=True)
-            logging.debug(f"DB insert affected {result.rowcount} rows")
+            logging.debug("DB insert affected %s rows", result.rowcount)
         except Exception as e:
-            logging.error(f"Failed to add email hash: {str(e)}")
+            logging.error("Failed to add email hash: %s", str(e))
             raise
 
     def get_classification(self, x_gm_msgid: str) -> Optional[str]:
@@ -66,7 +66,7 @@ class EmailDatabase:
             # Avoid duplicate folder
             check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
             if self.db.execute(check_query, (classification_id, folder_name), fetch=True):
-                logging.warning(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
+                logging.warning("Folder '%s' with classification ID '%s' already exists.", folder_name, classification_id)
                 return
 
             # Ensure classification exists
@@ -81,7 +81,7 @@ class EmailDatabase:
         except Exception as e:
             # Catches ProgrammingError (missing table) and InterfaceError (Commands out of sync)
             # to prevent thread crashes during startup if schema is not fully provisioned.
-            logging.error(f"Failed to add folder/classification: {e}")
+            logging.error("Failed to add folder/classification: %s", e)
             logging.warning("Ensure database schema is fully provisioned before starting threads.")
 
     def set_trained_flag(self, hash_ids: List[str], trained: bool = True) -> None:
@@ -113,7 +113,7 @@ class EmailDatabase:
             self.db.conn.commit()
             return True
         except Exception as e:
-            logging.error(f"Error updating mail queue: {e}")
+            logging.error("Error updating mail queue: %s", e)
             self.db.conn.rollback()
             return False
 
@@ -121,7 +121,7 @@ class EmailDatabase:
         query = """
             SELECT x_gm_msgid
             FROM mail_que
-            WHERE thread_marker=%s AND processed!=-1
+            WHERE thread_marker=%s AND processed != -1
             LIMIT %s
         """
         result = self.db.execute(query, (thread_marker, batch_size), fetch=True)
@@ -130,7 +130,7 @@ class EmailDatabase:
             update_query = f"""
                 UPDATE mail_que
                 SET thread_marker=%s
-                WHERE x_gm_msgid IN ({','.join(['%s']*len(x_gm_msgids))}) AND processed!=-1
+                WHERE x_gm_msgid IN ({','.join(['%s']*len(x_gm_msgids))}) AND processed != -1
             """
             self.db.execute(update_query, (thread_marker, *x_gm_msgids), commit=True)
             yield from x_gm_msgids
@@ -146,10 +146,13 @@ class EmailDatabase:
             cursor = self.db.conn.cursor()
             cursor.execute(query, (msgid, thread_marker))
             affected = cursor.rowcount
-            (self.db.conn.commit() if affected > 0 else self.db.conn.rollback())
+            if affected > 0:
+                self.db.conn.commit()
+            else:
+                self.db.conn.rollback()
             return affected > 0
         except Exception as e:
-            logging.error(f"Error popping from queue: {e}")
+            logging.error("Error popping from queue: %s", e)
             self.db.conn.rollback()
             return False
         finally:

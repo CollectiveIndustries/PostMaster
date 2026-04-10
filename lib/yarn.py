@@ -99,7 +99,7 @@ class ThreadBase(threading.Thread):
         """
         Signals the thread to stop and cleans up resources.
         """
-        logging.info(f"Stopping thread: {self.name}")
+        logging.info("Stopping thread: %s", self.name)
         self.stop_event.set()  # Signal the thread to stop
         self.CleanUpConnections()
 
@@ -112,7 +112,7 @@ class ThreadBase(threading.Thread):
                 logging.info("Closing database connection...")
                 self.email_db.close()
         except Exception as e:
-            logging.error(f"Error closing database connection: {e}", exc_info=True)
+            logging.error("Error closing database connection: %s", e, exc_info=True)
 
         try:
             if self.post_office:
@@ -122,14 +122,14 @@ class ThreadBase(threading.Thread):
                 if hasattr(self.post_office, 'logout'):
                     self.post_office.logout()
         except Exception as e:
-            logging.error(f"Error closing IMAP connection: {e}", exc_info=True)
+            logging.error("Error closing IMAP connection: %s", e, exc_info=True)
 
         try:
             if self.mail_net and hasattr(self.mail_net, "unload_model"):
                 logging.info("Unloading TensorFlow model...")
                 self.mail_net.unload_model()
         except Exception as e:
-            logging.error(f"Error unloading TensorFlow model: {e}", exc_info=True)
+            logging.error("Error unloading TensorFlow model: %s", e, exc_info=True)
 
     def ThreadSleep(self):
         """
@@ -163,28 +163,28 @@ class TrainerThread(ThreadBase):
         self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
     def run(self):
-        logging.info(f"Trainer thread for '{self.src}' started.")
+        logging.info("Trainer thread for '%s' started.", self.src)
         self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
         self.email_db.add_folder_and_classification(self.class_id, self.dst)
 
         try:
             while not self.stop_event.is_set():
-                logging.info(f"Checking IMAP state and database connectivity.")
+                logging.info("Checking IMAP state and database connectivity.")
                 self.post_office.check_imap_state(readonly=False)
                 self.email_db.check_and_reconnect()
 
                 # Fetch emails from IMAP
-                logging.info(f"Checking for mail in '{self.src}'.")
+                logging.info("Checking for mail in '%s'.", self.src)
                 total = self.post_office.total_emails(self.src)
 
                 if total == 0:
-                    logging.info(f"No emails to process in '{self.src}'. Sleeping until the next cycle.")
+                    logging.info("No emails to process in '%s'. Sleeping until the next cycle.", self.src)
                     self.ThreadSleep()
                     interruptible_sleep(self.SleepTime, self.stop_event)  # Allow interruptible sleep
                     continue  # Skip the rest of the loop and start the next cycle
 
-                logging.info(f"Fetching email message IDs from '{self.src}'.")
+                logging.info("Fetching email message IDs from '%s'.", self.src)
                 index = 0
                 start_time = time.time()
 
@@ -197,19 +197,19 @@ class TrainerThread(ThreadBase):
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
 
                 if total_count > 0:
-                    logging.info(f"Total emails to process: {total_count}. Beginning training cycle.")
+                    logging.info("Total emails to process: %s. Beginning training cycle.", total_count)
                     self.mail_net.load_model()
                     self._ProcessesBatches_(total_count)
-                    logging.info(f"Training completed. Waiting for next cycle.")
+                    logging.info("Training completed. Waiting for next cycle.")
 
                 self.ThreadSleep()
                 interruptible_sleep(self.SleepTime, self.stop_event)
 
         except Exception as e:
-            logging.error(f"Error in trainer thread: {e}", exc_info=True)
+            logging.error("Error in trainer thread: %s", e, exc_info=True)
             self.stop_event.set()
 
-        logging.info(f"Trainer thread stopped. Waiting for other threads to finish.")
+        logging.info("Trainer thread stopped. Waiting for other threads to finish.")
         self.ThreadSleep()
 
     def _ProcessesBatches_(self, total_count) -> None:
@@ -217,41 +217,41 @@ class TrainerThread(ThreadBase):
             if self.stop_event.is_set():
                 break
 
-            logging.info(f"Processing batch {start + 1} to {_end_} out of {total_count}.")
+            logging.info("Processing batch %s to %s out of %s.", start + 1, _end_, total_count)
 
             email_batch = []
             x_gm_msgids = list(self.email_db.fetch_mail_from_queue(self.name, total_count))
 
             if not x_gm_msgids:
-                logging.debug(f"No more emails in the queue to process.")
+                logging.debug("No more emails in the queue to process.")
                 break
 
             start_time = time.time()
             index = 0
 
             # Fetch emails in bulk
-            for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
+            for msg in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
                 if self.stop_event.is_set():
                     break
-                email_batch.append(email)
+                email_batch.append(msg)
 
                 if index % 100 == 0:
                     log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Fetching emails")
                 index += 1
 
                 if len(email_batch) >= self.batch_size:
-                    logging.info(f"Full batch fetched. Processing {len(email_batch)} emails.")
+                    logging.info("Full batch fetched. Processing %s emails.", len(email_batch))
                     self.process_batch(email_batch)
                     email_batch = []  # Reset the batch
 
             if email_batch:  # Process remaining emails
-                logging.info(f"Processing the final batch of {len(email_batch)} emails.")
+                logging.info("Processing the final batch of %s emails.", len(email_batch))
                 self.process_batch(email_batch)
 
             log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Training emails")
 
     def process_batch(self, email_batch: list[Email]) -> None:
-        logging.info(f"Starting model training for {len(email_batch)} emails.")
+        logging.info("Starting model training for %s emails.", len(email_batch))
         try:
             with self.rlock:  # Ensure thread-safe model access
                 # Tokenizer and model training
@@ -264,43 +264,43 @@ class TrainerThread(ThreadBase):
                 with open(f"{config.TRAINING_DATA_PATH}/tokenizer.pkl", "wb") as f:
                     pickle.dump(self.mail_net.tokenizer, f)
 
-            logging.info(f"Model training completed for this batch.")
+            logging.info("Model training completed for this batch.")
 
         except Exception as e:
-            logging.error(f"Error during model training: {e}", exc_info=True)
+            logging.error("Error during model training: %s", e, exc_info=True)
 
         # Move emails and update database
         trained_msg_ids = []
-        logging.info(f"Moving processed emails to '{self.dst}' and updating the database.")
+        logging.info("Moving processed emails to '%s' and updating the database.", self.dst)
         start_time = time.time()
         index = 0
         uid_lst = []
-        for email in email_batch:
+        for msg in email_batch:
             try:
-                uid_lst.append(email.uid)
-                self.email_db.add_email_hash(email.hash, email.msgid, self.class_id)
-                self.email_db.log_email_processing(email.msgid, email.hash, self.src, self.dst, "trained")
-                self.email_db.set_trained_flag([email.msgid])
-                success = self.email_db.pop_from_que(email.msgid, self.name)
+                uid_lst.append(msg.uid)
+                self.email_db.add_email_hash(msg.hash, msg.msgid, self.class_id)
+                self.email_db.log_email_processing(msg.msgid, msg.hash, self.src, self.dst, "trained")
+                self.email_db.set_trained_flag([msg.msgid])
+                success = self.email_db.pop_from_que(msg.msgid, self.name)
 
                 if not success:
-                    logging.error(f"Failed to pop email with X-GM-MSGID '{email.msgid}' from queue.")
+                    logging.error("Failed to pop email with X-GM-MSGID '%s' from queue.", msg.msgid)
 
-                trained_msg_ids.append(email.msgid)
+                trained_msg_ids.append(msg.msgid)
 
                 if index % 100 == 0:
                     log_progress(len(trained_msg_ids), len(email_batch), start_time, stage="sql update")
                 index += 1
 
             except Exception as e:
-                logging.error(f"Failed to process email with X-GM-MSGID '{email.msgid}': {e}", exc_info=True)
+                logging.error("Failed to process email with X-GM-MSGID '%s': %s", msg.msgid, e, exc_info=True)
 
         self.post_office.move(uids=uid_lst, destination_folder=self.dst)
 
         if trained_msg_ids:
-            logging.info(f"Successfully processed {len(trained_msg_ids)} emails in this batch.")
+            logging.info("Successfully processed %s emails in this batch.", len(trained_msg_ids))
         else:
-            logging.warning(f"No emails were successfully processed in this batch.")
+            logging.warning("No emails were successfully processed in this batch.")
 
 
 class ClassificationThread(ThreadBase):
@@ -323,7 +323,7 @@ class ClassificationThread(ThreadBase):
 
     def run(self):
         """Main thread runner."""
-        logging.info(f"Trainer thread for '{self.mailbox}' started.")
+        logging.info("Trainer thread for '%s' started.", self.mailbox)
         self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
         try:
@@ -389,13 +389,13 @@ class ClassificationThread(ThreadBase):
 
         start_time = time.time()
         index = 0
-        classication_map = self.email_db.get_mail_map()
+        classification_map = self.email_db.get_mail_map()
 
         # Collect all emails first
-        for email in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
+        for msg in self.post_office.fetch_batch(x_gm_msgids, self.batch_size):
             if self.stop_event.is_set():
                 break
-            email_batch.append(email)
+            email_batch.append(msg)
 
             # Periodic progress logging
             if index % 100 == 0:
@@ -404,12 +404,12 @@ class ClassificationThread(ThreadBase):
 
         # Once all emails are collected, classify them
         if email_batch:
-            logging.info(f"Classifying a total of {len(email_batch)} emails.")
+            logging.info("Classifying a total of %s emails.", len(email_batch))
             self.mail_net.load_model()
             self.mail_net.classify_emails(email_batch)  # Classify all emails at once
 
             # Sort emails by folder after classification
-            sorted_emails = sort_emails_by_folder(email_batch, classication_map)
+            sorted_emails = sort_emails_by_folder(email_batch, classification_map)
 
         return sorted_emails
 
@@ -462,9 +462,9 @@ class LogRotation(threading.Thread):
             try:
                 if os.path.exists(log_file):
                     file_size = os.path.getsize(log_file)
-                    logging.debug(f"Current log file size: {file_size} bytes. MAX_SIZE: {config.MAX_SIZE}")
+                    logging.debug("Current log file size: %s bytes. MAX_SIZE: %s", file_size, config.MAX_SIZE)
                     if file_size >= config.MAX_SIZE:
-                        logging.warning(f"Log file size exceeded threshold: {log_file}")
+                        logging.warning("Log file size exceeded threshold: %s", log_file)
                         self.rotate()
                 else:
                     log_dir = os.path.dirname(log_file)

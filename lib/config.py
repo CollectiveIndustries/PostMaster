@@ -1,4 +1,5 @@
 import argparse
+from typing import Optional
 
 from CollectiveCore.collective_config import CollectiveConfig
 
@@ -9,7 +10,7 @@ class Conf:
     Uses CollectiveConfig as the singleton loader.
     """
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: Optional[str] = None):
         # Load the singleton config instance
         self._cfg = CollectiveConfig(config_path)
 
@@ -74,7 +75,7 @@ class Conf:
         }
 
 
-def parse_args(argv=None):
+def parse_args(argv: Optional[list[str]] = None):
     parser = argparse.ArgumentParser(description="Spam Vanquisher Configuration")
     parser.add_argument("--config", type=str, help="Path to the config YAML file", default=None)
     parser.add_argument(
@@ -86,7 +87,7 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def build_config(argv=None) -> Conf:
+def build_config(argv: Optional[list[str]] = None) -> Conf:
     """Factory function to build Conf from CLI or supplied argv list."""
     args = parse_args(argv)
     return Conf(config_path=args.config)
