@@ -101,5 +101,7 @@ if __name__ == "__main__":
         for thread in threads:
             logging.info("Waiting for thread to exit: %s", thread.name)
             thread.stop()
-            thread.join()
+            thread.join(timeout=2.0)
+            if thread.is_alive():
+                logging.warning("Thread %s did not exit within timeout.", thread.name)
         logging.info("All threads have exited cleanly.")
