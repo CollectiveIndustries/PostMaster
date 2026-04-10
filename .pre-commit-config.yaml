@@ -1,4 +1,13 @@
 repos:
+#  - repo: local
+#    hooks:
+#      - id: unchop
+#        name: Unchop long lines
+#        entry: python scripts/unchop.py
+#        language: system
+#        types: [python]
+#        stages: [pre-commit]
+
   # Auto-fix hooks first
   - repo: https://github.com/ikamensh/flynt
     rev: 1.0.6
@@ -122,4 +131,3 @@ repos:
           - requests
           - beautifulsoup4
           - pyyaml
-        allow_failures: true

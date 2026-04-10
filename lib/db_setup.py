@@ -71,8 +71,7 @@ def start_mariadb_service() -> bool:
 
     logger.info("Falling back to mysqld_safe...")
     try:
-        with subprocess.Popen(["sudo", "mysqld_safe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as _proc:
-            pass
+        subprocess.Popen(["sudo", "mysqld_safe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception as e:
         logger.error("Failed to start MariaDB via mysqld_safe: %s", e)
