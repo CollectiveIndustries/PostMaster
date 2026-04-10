@@ -20,7 +20,7 @@ class LogRotation(threading.Thread):
         self.backup_count = config.BACKUP_COUNT
         self.check_interval = config.CHECK_INTERVAL
         self.stop_event = stop_event
-        logging.info("Log rotation thread intilized.")
+        logging.info("Log rotation thread initialized.")
 
     def run(self):
         log_file = config.LOG_FILE
@@ -34,8 +34,8 @@ class LogRotation(threading.Thread):
                         logging.warning(f"Log file size exceeded threshold: {log_file}")
                         self.rotate()
                 else:
-                    with open(log_file, 'w') as log_file:
-                        log_file.write("")  # Initialize an empty log file
+                    with open(log_file, 'w', encoding='utf-8') as f:
+                        pass  # Initialize an empty log file
             except Exception as e:
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
             interruptible_sleep(config.CHECK_INTERVAL, self.stop_event)
@@ -73,7 +73,8 @@ class LogRotation(threading.Thread):
                         shutil.copyfileobj(f_in, f_out)
                 logging.info("Archived current log file as daily log: %s", daily_log)
                 # Clear the current log file
-                open(self.log_file, 'w').close()
+                with open(self.log_file, 'w', encoding='utf-8') as f:
+                    pass
 
             # Manage weekly and monthly logs
             if now.weekday() == 0:  # If it's Monday, create a weekly log
