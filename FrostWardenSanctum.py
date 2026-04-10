@@ -1,3 +1,4 @@
+import argparse
 import logging
 import signal
 import sys
@@ -7,24 +8,39 @@ import time
 # Ensure MariaDB is running and provisioned before importing config
 from lib.db_setup import ensure_database_ready
 
-if not ensure_database_ready():
-    sys.exit("Failed to initialize MariaDB. Please check your database setup.")
 
-from lib.config import config
-from lib.yarn import ClassificationThread, LogRotation, TrainerThread
-
-# Version and package metadata
-__version__ = "0.1.0"
-
-
-# Register signal handler for SIGTERM
-def graceful_shutdown(signum, _frame):
-    logging.info(f"Received signal {signum}, shutting down gracefully.")
-    StopEvent.set()  # pylint: disable=possibly-used-before-assignment
+def parse_early_args():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--config", type=str, default=None)
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+    )
+    return parser.parse_known_args()[0]
 
 
-# Usage Example
 if __name__ == "__main__":
+    early_args = parse_early_args()
+
+    logging.basicConfig(
+        level=getattr(logging, early_args.log_level),
+        format="%(levelname)s:%(message)s",
+    )
+
+    if not ensure_database_ready(config_path=early_args.config):
+        sys.exit("Failed to initialize MariaDB. Please check your database setup.")
+
+    from lib.config import config
+    from lib.yarn import ClassificationThread, LogRotation, TrainerThread
+
+    # Version and package metadata
+    __version__ = "0.1.0"
+
+    # Register signal handler for SIGTERM
+    def graceful_shutdown(signum, _frame):
+        logging.info("Received signal %s, shutting down gracefully.", signum)
+        StopEvent.set()
 
     # General configs
     spam_folder = config.SPAM_FOLDER
@@ -70,7 +86,7 @@ if __name__ == "__main__":
     # Start all threads
     try:
         for thread in threads:
-            logging.info(f"Starting thread: {thread.name}")
+            logging.info("Starting thread: %s", thread.name)
             thread.start()
 
         logging.info("Service is running.")
@@ -83,14 +99,14 @@ if __name__ == "__main__":
         logging.info("Received KeyboardInterrupt, shutting down gracefully.")
         StopEvent.set()
     except Exception as e:
-        logging.error(f"Unexpected error occurred: {e}", exc_info=True)
+        logging.error("Unexpected error occurred: %s", e, exc_info=True)
         StopEvent.set()
     finally:
         logging.info("Stopping all threads.")
 
         # Ensure threads stop and join gracefully
         for thread in threads:
-            logging.info(f"Waiting for thread to exit: {thread.name}")
+            logging.info("Waiting for thread to exit: %s", thread.name)
             thread.stop()
             thread.join()
         logging.info("All threads have exited cleanly.")
