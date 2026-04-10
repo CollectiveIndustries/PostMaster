@@ -38,6 +38,8 @@ class HotmailProvider(MailProvider):
             },
             "saveToSentItems": "true",
         }
-        response = requests.post("https://graph.microsoft.com/v1.0/me/sendMail", headers=headers, json=payload, timeout=30)
+        response = requests.post(
+            "https://graph.microsoft.com/v1.0/me/sendMail", headers=headers, json=payload, timeout=30
+        )
         response.raise_for_status()
         return {"status": "sent"}
