@@ -90,9 +90,7 @@ def wait_for_mariadb(timeout: int = 30, db_user=None, db_pass=None, db_host=None
     return False
 
 
-def provision_database(
-    sql_path: str = "sql/install.sql", db_user=None, db_pass=None, db_host=None
-) -> bool:
+def provision_database(sql_path: str = "sql/install.sql", db_user=None, db_pass=None, db_host=None) -> bool:
     """Execute the SQL installation script to provision the database."""
     if not os.path.isabs(sql_path):
         base_dir = Path(__file__).resolve().parent.parent

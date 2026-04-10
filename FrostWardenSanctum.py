@@ -12,21 +12,14 @@ from lib.db_setup import ensure_database_ready
 def parse_early_args():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--config", type=str, default=None)
-    parser.add_argument(
-        "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-    )
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="INFO")
     return parser.parse_known_args()[0]
 
 
 if __name__ == "__main__":
     early_args = parse_early_args()
 
-    logging.basicConfig(
-        level=getattr(logging, early_args.log_level),
-        format="%(levelname)s:%(message)s",
-    )
+    logging.basicConfig(level=getattr(logging, early_args.log_level), format="%(levelname)s:%(message)s")
 
     if not ensure_database_ready(config_path=early_args.config):
         sys.exit("Failed to initialize MariaDB. Please check your database setup.")
