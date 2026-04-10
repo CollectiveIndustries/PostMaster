@@ -157,11 +157,12 @@ class TrainerThread(ThreadBase):
         self.rlock = model_lock
         self.SleepTime = config.SCAN_TIME
 
-        self.post_office = PostOffice(stop_event, self.src)
+        # Fixed: PostOffice expects (provider_name: str, config: dict), not (stop_event, mailbox)
+        self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
     def run(self):
         logging.info(f"Trainer thread for '{self.src}' started.")
-        self.post_office = PostOffice(self.stop_event, self.src)
+        self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
         self.email_db.add_folder_and_classification(self.class_id, self.dst)
 
@@ -315,12 +316,13 @@ class ClassificationThread(ThreadBase):
         """
         super().__init__(name, mailbox, stop_event, barrier, batch_size)
 
-        self.post_office = PostOffice(stop_event, mailbox)
+        # Fixed: PostOffice expects (provider_name: str, config: dict), not (stop_event, mailbox)
+        self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
     def run(self):
         """Main thread runner."""
         logging.info(f"Trainer thread for '{self.mailbox}' started.")
-        self.post_office = PostOffice(self.stop_event, self.mailbox)
+        self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
         try:
             while not self.stop_event.is_set():
