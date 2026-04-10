@@ -60,6 +60,7 @@ class EmailDatabase:
         result = self.db.execute(query, fetch=True)
         return {row["classification_id"]: row["folder_name"] for row in result} if result else None
 
+    # pylint: disable=too-many-positional-arguments
     def log_email_processing(
         self, sequence_number: str, hash_id: str, source_folder: str, destination_folder: str, status: str
     ) -> None:

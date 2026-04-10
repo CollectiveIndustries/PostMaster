@@ -1,4 +1,4 @@
-# pylint: disable=line-too-long
+# pylint: disable=line-too-long,too-many-positional-arguments
 """
 This module provides functionality for log rotation, email training, and classification using threading.
 It includes classes for log rotation, training emails in batches, and classifying emails based on a trained model.
@@ -509,8 +509,7 @@ class LogRotation(threading.Thread):
                         shutil.copyfileobj(f_in, f_out)
                 logging.info("Archived current log file as daily log: %s", daily_log)
                 # Clear the current log file
-                with open(self.log_file, 'w', encoding='utf-8') as f:
-                    pass
+                open(self.log_file, 'w', encoding='utf-8').close()
 
             # Manage weekly and monthly logs
             if now.weekday() == 0:  # If it's Monday, create a weekly log
