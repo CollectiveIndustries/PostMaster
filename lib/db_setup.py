@@ -1,11 +1,12 @@
+import logging
 import os
 import subprocess
 import sys
 import time
-import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
 
 def load_env(env_path=".env"):
     """Load environment variables from a .env file."""
@@ -21,6 +22,7 @@ def load_env(env_path=".env"):
                     key, value = line.split("=", 1)
                     env_vars[key.strip()] = value.strip().strip('"').strip("'")
     return env_vars
+
 
 def run_cmd(cmd, db_user=None, db_pass=None, db_host=None, sudo_pass=None, check=True, stdin_data=None):
     """Execute a command, optionally with sudo and DB credentials."""
@@ -45,14 +47,7 @@ def run_cmd(cmd, db_user=None, db_pass=None, db_host=None, sudo_pass=None, check
         env["MYSQL_PWD"] = db_pass
 
     try:
-        return subprocess.run(
-            cmd,
-            input=input_data,
-            text=True,
-            capture_output=True,
-            check=check,
-            env=env
-        )
+        return subprocess.run(cmd, input=input_data, text=True, capture_output=True, check=check, env=env)
     except subprocess.CalledProcessError as e:
         stderr_msg = e.stderr
         if sudo_pass and sudo_pass in stderr_msg:
@@ -63,6 +58,7 @@ def run_cmd(cmd, db_user=None, db_pass=None, db_host=None, sudo_pass=None, check
             logger.error("Authentication failed (sudo or database).")
         raise subprocess.CalledProcessError(e.returncode, e.cmd, output=e.stdout, stderr=stderr_msg) from e
 
+
 def start_mariadb_service(sudo_pass=None) -> bool:
     """Attempt to start the local MariaDB server using common service managers."""
     commands = [
@@ -71,7 +67,7 @@ def start_mariadb_service(sudo_pass=None) -> bool:
         ["service", "mariadb", "start"],
         ["service", "mysql", "start"],
     ]
-    
+
     for cmd in commands:
         try:
             run_cmd(cmd, sudo_pass=sudo_pass)
@@ -79,18 +75,15 @@ def start_mariadb_service(sudo_pass=None) -> bool:
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):
             continue
-            
+
     logger.info("Falling back to mysqld_safe...")
     try:
-        subprocess.Popen(
-            ["mysqld_safe"], 
-            stdout=subprocess.DEVNULL, 
-            stderr=subprocess.DEVNULL
-        )
+        subprocess.Popen(["mysqld_safe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception as e:
         logger.error(f"Failed to start MariaDB via mysqld_safe: {e}")
         return False
+
 
 def wait_for_mariadb(timeout: int = 30, db_user=None, db_pass=None, db_host=None, sudo_pass=None) -> bool:
     """Poll until MariaDB accepts connections or timeout is reached."""
@@ -104,18 +97,21 @@ def wait_for_mariadb(timeout: int = 30, db_user=None, db_pass=None, db_host=None
             time.sleep(1)
     return False
 
-def provision_database(sql_path: str = "sql/install.sql", db_user=None, db_pass=None, db_host=None, sudo_pass=None) -> bool:
+
+def provision_database(
+    sql_path: str = "sql/install.sql", db_user=None, db_pass=None, db_host=None, sudo_pass=None
+) -> bool:
     """Execute the SQL installation script to provision the database."""
     if not os.path.isabs(sql_path):
         base_dir = Path(__file__).resolve().parent.parent
         sql_file = base_dir / sql_path
     else:
         sql_file = Path(sql_path)
-        
+
     if not sql_file.exists():
         logger.error(f"SQL installation script not found at: {sql_file}")
         return False
-        
+
     logger.info(f"Provisioning database using {sql_file}...")
     try:
         with open(sql_file, "r", encoding="utf-8") as f:
@@ -127,6 +123,7 @@ def provision_database(sql_path: str = "sql/install.sql", db_user=None, db_pass=
     except subprocess.CalledProcessError as e:
         logger.error(f"Database provisioning failed: {e.stderr}")
         return False
+
 
 def ensure_database_ready() -> bool:
     """
@@ -144,7 +141,9 @@ def ensure_database_ready() -> bool:
     db_host = env_vars.get("POSTMASTER_DB_HOST", "localhost")
 
     if not all([db_user, db_pass, db_name]):
-        logger.error("Missing required database environment variables (POSTMASTER_DB_USER, POSTMASTER_DB_PASSWORD, POSTMASTER_DB_NAME).")
+        logger.error(
+            "Missing required database environment variables (POSTMASTER_DB_USER, POSTMASTER_DB_PASSWORD, POSTMASTER_DB_NAME)."
+        )
         return False
 
     logger.info("Checking MariaDB availability...")
@@ -153,11 +152,11 @@ def ensure_database_ready() -> bool:
         if not start_mariadb_service(sudo_pass=sudo_pass):
             logger.error("Failed to start MariaDB automatically. Please start it manually.")
             return False
-            
+
         if not wait_for_mariadb(timeout=30, db_user=db_user, db_pass=db_pass, db_host=db_host, sudo_pass=sudo_pass):
             logger.error("MariaDB failed to become ready within timeout.")
             return False
-            
+
     logger.info("MariaDB is running. Checking database provisioning...")
     try:
         cmd = ["mysql", "-u", db_user, "-h", db_host, "-e", f"SHOW DATABASES LIKE '{db_name}';"]

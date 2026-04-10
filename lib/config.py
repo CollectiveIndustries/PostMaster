@@ -91,5 +91,6 @@ def build_config(argv=None) -> Conf:
     args = parse_args(argv)
     return Conf(config_path=args.config)
 
+
 # Module-level singleton instance for easy importing
 config = Conf()

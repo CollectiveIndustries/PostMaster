@@ -6,6 +6,7 @@ import time
 
 # Ensure MariaDB is running and provisioned before importing config
 from lib.db_setup import ensure_database_ready
+
 if not ensure_database_ready():
     sys.exit("Failed to initialize MariaDB. Please check your database setup.")
 
