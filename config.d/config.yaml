@@ -1,6 +1,6 @@
 database:
   user: postmaster_user
-  password: qa9CvLz8Nv3wcyBr9TAS6TzkCaEmRHZA
+  password: qa9CvLz8Nv3wcyBr9TAS6TzkCaEmRHZA #pragma: allowlist secret
   host: localhost
   database: postmaster_db
   port: 3306
