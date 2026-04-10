@@ -4,6 +4,7 @@ import logging
 import time
 
 from .config import config
+from .post import Email
 
 
 def log_progress(index, total, start_time, stage="Processing"):
