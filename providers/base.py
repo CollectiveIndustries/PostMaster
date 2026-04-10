@@ -17,14 +17,14 @@ class MailProvider(ABC):
     @abstractmethod
     def authenticate(self):
         """Authenticate with the provider using given credentials."""
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def fetch_messages(self, folder: str = "INBOX", limit: int = 50):
         """Fetch messages from the given folder."""
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def send_message(self, to: str, subject: str, body: str):
         """Send an email message."""
-        pass
+        raise NotImplementedError

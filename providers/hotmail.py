@@ -19,12 +19,12 @@ class HotmailProvider(MailProvider):
         if "access_token" in result:
             self.access_token = result["access_token"]
         else:
-            raise Exception("Authentication failed")
+            raise RuntimeError("Authentication failed")
 
     def fetch_messages(self, folder: str = "inbox", limit: int = 50):
         headers = {"Authorization": f"Bearer {self.access_token}"}
         endpoint = f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder}/messages" f"?$top={limit}"
-        response = requests.get(endpoint, headers=headers)
+        response = requests.get(endpoint, headers=headers, timeout=30)
         response.raise_for_status()
         return response.json().get("value", [])
 
@@ -38,6 +38,6 @@ class HotmailProvider(MailProvider):
             },
             "saveToSentItems": "true",
         }
-        response = requests.post("https://graph.microsoft.com/v1.0/me/sendMail", headers=headers, json=payload)
+        response = requests.post("https://graph.microsoft.com/v1.0/me/sendMail", headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         return {"status": "sent"}

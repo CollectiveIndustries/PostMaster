@@ -34,7 +34,7 @@ class LogRotation(threading.Thread):
                         logging.warning(f"Log file size exceeded threshold: {log_file}")
                         self.rotate()
                 else:
-                    with open(log_file, 'w', encoding='utf-8') as f:
+                    with open(log_file, 'w', encoding='utf-8') as _:
                         pass  # Initialize an empty log file
             except Exception as e:
                 logging.error("Error in log rotation thread: %s", e, exc_info=True)
@@ -73,7 +73,7 @@ class LogRotation(threading.Thread):
                         shutil.copyfileobj(f_in, f_out)
                 logging.info("Archived current log file as daily log: %s", daily_log)
                 # Clear the current log file
-                with open(self.log_file, 'w', encoding='utf-8') as f:
+                with open(self.log_file, 'w', encoding='utf-8') as _:
                     pass
 
             # Manage weekly and monthly logs

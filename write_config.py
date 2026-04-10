@@ -42,7 +42,7 @@ def write_default_config():
     if os.path.exists(CONFIG_FILE):
         print(f"{CONFIG_FILE} already exists. Skipping write.")
         return
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         yaml.dump(DEFAULT_CONFIG, f, sort_keys=False)
     print(f"Default configuration written to {CONFIG_FILE}")
 

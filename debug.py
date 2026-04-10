@@ -31,7 +31,7 @@ class IMAPDebugger:
                 logging.info(f"Mailbox '{self.mailbox}' selected successfully.")
             else:
                 logging.error(f"Failed to select mailbox: {self.mailbox}")
-                raise Exception("Unable to select mailbox.")
+                raise RuntimeError("Unable to select mailbox.")
         except Exception as e:
             logging.error(f"Error selecting mailbox: {e}")
             raise
@@ -45,7 +45,7 @@ class IMAPDebugger:
                 return uids
             else:
                 logging.error("Failed to fetch UIDs.")
-                raise Exception("Unable to fetch UIDs.")
+                raise RuntimeError("Unable to fetch UIDs.")
         except Exception as e:
             logging.error(f"Error fetching UIDs: {e}")
             raise
@@ -74,7 +74,7 @@ class IMAPDebugger:
 
         if problematic_uids:
             logging.info(f"Total problematic UIDs: {len(problematic_uids)}")
-            with open("problematic_uids.log", "w") as log_file:
+            with open("problematic_uids.log", "w", encoding="utf-8") as log_file:
                 log_file.write("\n".join(problematic_uids))
             logging.info("Problematic UIDs logged to 'problematic_uids.log'.")
         else:

@@ -57,7 +57,7 @@ def ensure_module(module_name: str):
     """Try to import, if fails pip install."""
     if importlib.util.find_spec(module_name) is None:
         print(f"[MISSING] {module_name}, installing...")
-        subprocess.run([sys.executable, "-m", "pip", "install", module_name])
+        subprocess.run([sys.executable, "-m", "pip", "install", module_name], check=False)
     else:
         print(f"[OK] {module_name} is already installed")
 
