@@ -7,12 +7,12 @@
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
--- Dumping database structure for SpamVanquisher
-DROP DATABASE IF EXISTS `SpamVanquisher`;
-CREATE DATABASE IF NOT EXISTS `SpamVanquisher` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
-USE `SpamVanquisher`;
+-- Dumping database structure for postmaster_db
+DROP DATABASE IF EXISTS `postmaster_db`;
+CREATE DATABASE IF NOT EXISTS `postmaster_db` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
+USE `postmaster_db`;
 
--- Dumping structure for table SpamVanquisher.classifications
+-- Dumping structure for table postmaster_db.classifications
 DROP TABLE IF EXISTS `classifications`;
 CREATE TABLE IF NOT EXISTS `classifications` (
   `classification_id` varchar(50) NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS `classifications` (
 
 -- Data exporting was unselected.
 
--- Dumping structure for table SpamVanquisher.classification_folders
+-- Dumping structure for table postmaster_db.classification_folders
 DROP TABLE IF EXISTS `classification_folders`;
 CREATE TABLE IF NOT EXISTS `classification_folders` (
   `map_id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS `classification_folders` (
 
 -- Data exporting was unselected.
 
--- Dumping structure for table SpamVanquisher.email_hashes
+-- Dumping structure for table postmaster_db.email_hashes
 DROP TABLE IF EXISTS `email_hashes`;
 CREATE TABLE IF NOT EXISTS `email_hashes` (
   `hash_id` char(64) NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS `email_hashes` (
 
 -- Data exporting was unselected.
 
--- Dumping structure for table SpamVanquisher.email_processing_log
+-- Dumping structure for table postmaster_db.email_processing_log
 DROP TABLE IF EXISTS `email_processing_log`;
 CREATE TABLE IF NOT EXISTS `email_processing_log` (
   `log_id` bigint(20) NOT NULL AUTO_INCREMENT,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS `email_processing_log` (
 
 -- Data exporting was unselected.
 
--- Dumping structure for table SpamVanquisher.mail_que
+-- Dumping structure for table postmaster_db.mail_que
 DROP TABLE IF EXISTS `mail_que`;
 CREATE TABLE IF NOT EXISTS `mail_que` (
   `id` int(11) NOT NULL AUTO_INCREMENT,

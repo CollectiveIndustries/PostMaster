@@ -17,6 +17,16 @@ class EmailDatabase:
     def __init__(self):
         self.db = MariaModule()
 
+    def close(self) -> None:
+        """Safely close the database connection if supported by the underlying module."""
+        try:
+            if hasattr(self.db, 'close') and callable(self.db.close):
+                self.db.close()
+            elif hasattr(self.db, 'conn') and hasattr(self.db.conn, 'close'):
+                self.db.conn.close()
+        except Exception as e:
+            logging.debug(f"Database connection close skipped or failed: {e}")
+
     def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
         logging.debug(f"Adding email hash: {hash_id} for msgid {x_gm_msgid}")
         query = """
@@ -52,21 +62,27 @@ class EmailDatabase:
         self.db.execute(query, (sequence_number, hash_id, source_folder, destination_folder, status), commit=True)
 
     def add_folder_and_classification(self, classification_id: str, folder_name: str) -> None:
-        # Avoid duplicate folder
-        check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
-        if self.db.execute(check_query, (classification_id, folder_name), fetch=True):
-            logging.warning(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
-            return
+        try:
+            # Avoid duplicate folder
+            check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
+            if self.db.execute(check_query, (classification_id, folder_name), fetch=True):
+                logging.warning(f"Folder '{folder_name}' with classification ID '{classification_id}' already exists.")
+                return
 
-        # Ensure classification exists
-        ensure_query = (
-            "INSERT IGNORE INTO classifications (classification_id, description, is_dynamic) VALUES (%s, '', FALSE)"
-        )
-        self.db.execute(ensure_query, (classification_id,), commit=True)
+            # Ensure classification exists
+            ensure_query = (
+                "INSERT IGNORE INTO classifications (classification_id, description, is_dynamic) VALUES (%s, '', FALSE)"
+            )
+            self.db.execute(ensure_query, (classification_id,), commit=True)
 
-        # Add folder
-        add_query = "INSERT INTO classification_folders (classification_id, folder_name) VALUES (%s, %s)"
-        self.db.execute(add_query, (classification_id, folder_name), commit=True)
+            # Add folder
+            add_query = "INSERT INTO classification_folders (classification_id, folder_name) VALUES (%s, %s)"
+            self.db.execute(add_query, (classification_id, folder_name), commit=True)
+        except Exception as e:
+            # Catches ProgrammingError (missing table) and InterfaceError (Commands out of sync)
+            # to prevent thread crashes during startup if schema is not fully provisioned.
+            logging.error(f"Failed to add folder/classification: {e}")
+            logging.warning("Ensure database schema is fully provisioned before starting threads.")
 
     def set_trained_flag(self, hash_ids: List[str], trained: bool = True) -> None:
         if not hash_ids:
