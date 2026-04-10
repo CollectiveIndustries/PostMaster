@@ -7,15 +7,19 @@ database:
 
 accounts:
   - provider: gmail
-    email: yourname@gmail.com
-    client_id: "xxxx.apps.googleusercontent.com"
-    client_secret: "xxxx"
-    refresh_token: "xxxx"
+    email: admmorketh@gmail.com
+    password: "jpzg tspt vvxe opna"  # Your 16-character App Password (with or without spaces)
+    imap_server: imap.gmail.com
+    imap_port: 993
+    smtp_server: smtp.gmail.com
+    smtp_port: 587
   - provider: outlook
     email: yourname@hotmail.com
-    client_id: "yyyy"
-    client_secret: "yyyy"
-    refresh_token: "yyyy"
+    password: "your_regular_password_or_app_password"
+    imap_server: outlook.office365.com
+    imap_port: 993
+    smtp_server: smtp-mail.outlook.com
+    smtp_port: 587
 Folders:
   inbox: INBOX
   spam_folder: SPAM
