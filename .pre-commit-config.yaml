@@ -76,8 +76,8 @@ repos:
           - --max-line-length=120
           - --extend-ignore=E501,E203
 
-  - repo: https://github.com/pre-commit/mirrors-pylint
-    rev: v2.7.4
+  - repo: https://github.com/pylint-dev/pylint
+    rev: v3.3.4
     hooks:
       - id: pylint
         name: Run pylint
@@ -124,7 +124,7 @@ repos:
         language: python
         pass_filenames: false
         types: [python]
-        args: [--maxfail=1, --disable-warnings, --exit-zero]
+        args: [--maxfail=1, --disable-warnings]
         language_version: python3.13
         additional_dependencies:
           - pytest
