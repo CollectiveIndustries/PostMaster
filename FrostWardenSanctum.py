@@ -13,6 +13,7 @@ def parse_early_args():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="INFO")
+    parser.add_argument("--install-sql", type=str, default="sql/install.sql")
     return parser.parse_known_args()[0]
 
 
@@ -21,7 +22,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=getattr(logging, early_args.log_level), format="%(levelname)s:%(message)s")
 
-    if not ensure_database_ready(config_path=early_args.config):
+    if not ensure_database_ready(config_path=early_args.config, sql_path=early_args.install_sql):
         sys.exit("Failed to initialize MariaDB. Please check your database setup.")
 
     from lib.config import config
