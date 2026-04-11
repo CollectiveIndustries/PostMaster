@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 
+from lib.config import Conf
 # Ensure MariaDB is running and provisioned before importing config
 from lib.db_setup import ensure_database_ready
 
@@ -19,13 +20,13 @@ def parse_early_args():
 
 if __name__ == "__main__":
     early_args = parse_early_args()
+    config = Conf(config_path=early_args.config)  # Load config early to get DB settings for ensure_database_ready
 
     logging.basicConfig(level=getattr(logging, early_args.log_level), format="%(levelname)s:%(message)s")
 
     if not ensure_database_ready(config_path=early_args.config, sql_path=early_args.install_sql):
         sys.exit("Failed to initialize MariaDB. Please check your database setup.")
 
-    from lib.config import config
     from lib.yarn import ClassificationThread, LogRotation, TrainerThread
 
     # Validate configuration before proceeding to thread initialization

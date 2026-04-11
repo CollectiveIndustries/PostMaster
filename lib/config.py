@@ -107,4 +107,4 @@ def build_config(argv: Optional[list[str]] = None) -> Conf:
 
 
 # Module-level singleton instance for easy importing
-config = Conf()
+#config = Conf() # BUG: This will load the config at import time, which may be too early if we need to ensure the database is ready first. Consider lazy loading or refactoring to avoid this issue.

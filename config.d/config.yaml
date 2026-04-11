@@ -13,7 +13,7 @@ accounts:
      imap_server: imap.gmail.com
      imap_port: 993
      smtp_server: smtp.gmail.com
-     smtp<｜begin▁of▁sentence｜>port: 587
+     smtp_port: 587
    - provider: hotmail
      email: yourname@hotmail.com
      password: "your_regular_password_or_app_password"   
