@@ -5,6 +5,7 @@ to manage email hashes, classifications, folders, mail queue, and processing log
 
 import logging
 import threading
+import time
 from typing import Dict, Generator, List, Optional
 
 from CollectiveCore.MariaMod import MariaModule
@@ -201,3 +202,37 @@ class EmailDatabase:
         except Exception as e:
             logging.error("Error popping from queue: %s", e)
             return False
+# Add this method to EmailDatabase class
+    def _safe_execute(self, query: str, params=None, fetch: bool = False, commit: bool = False, retries: int = 3):
+        """Thread-safe wrapper for database execution with automatic retry."""
+        self._ensure_connection()
+        with self._db_lock:
+            for attempt in range(retries):
+                try:
+                    logging.debug("DB Query: %s | Params: %s", query.strip().replace('\n', ' '), params)
+                    result = self.db.execute(query, params, fetch=fetch, commit=commit)
+                    if fetch and result:
+                        logging.debug("DB Fetch Result: %s rows", len(result))
+                    return result
+                except Exception as e:
+                    err_str = str(e)
+                    logging.warning("DB error (attempt %d/%d): %s", attempt + 1, retries, err_str)
+
+                    # Attempt to reconnect on known connection errors
+                    reconnect_keywords = [
+                        "Lost connection", "Commands out of sync", "NoneType", 
+                        "closed", "packets out of order", "Server has gone away",
+                        "Connection refused", "Can't connect"
+                    ]
+                    if any(kw in err_str for kw in reconnect_keywords):
+                        try:
+                            # Force new connection
+                            self.db = MariaModule()
+                            self._closed = False
+                            logging.debug("Reconnected database after error.")
+                            time.sleep(1)  # Brief pause before retry
+                            continue
+                        except Exception as re_err:
+                            logging.error("DB reconnection failed: %s", re_err)
+                    raise
+            raise

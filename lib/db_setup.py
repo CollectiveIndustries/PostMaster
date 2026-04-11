@@ -8,23 +8,17 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-
 def load_db_config(config_path: str | None = None) -> dict:
-    """Load database configuration from the project YAML file."""
-    if not config_path:
-        config_path = Path(__file__).resolve().parent.parent / "config.d" / "config.yaml"
+    """Load database configuration from the ConfigManager."""
+    from .config_manager import config_manager
+    
+    # Initialize config manager if not already done
+    if config_path:
+        config_manager.initialize(config_path)
     else:
-        config_path = Path(config_path)
-        if not config_path.is_absolute():
-            config_path = Path(__file__).resolve().parent.parent / config_path
-
-    if not config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-
-    db_cfg = cfg.get("database", {})
+        config_manager.initialize()
+    
+    db_cfg = config_manager.get_section("database")
     return {
         "user": db_cfg.get("user", "root"),
         "password": db_cfg.get("password", ""),
