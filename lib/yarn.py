@@ -101,19 +101,12 @@ class ThreadBase(threading.Thread):
         """
         logging.info("Stopping thread: %s", self.name)
         self.stop_event.set()  # Signal the thread to stop
-        self.CleanUpConnections()
+        self.CleanUpConnections(final=True)
 
-    def CleanUpConnections(self):
+    def CleanUpConnections(self, final: bool = False):
         """
         Cleans up the connections to email server, database, and model resources.
         """
-        try:
-            if self.email_db and hasattr(self.email_db, 'close'):
-                logging.debug("Closing database connection...")
-                self.email_db.close()
-        except Exception as e:
-            logging.error("Error closing database connection: %s", e, exc_info=True)
-
         try:
             if self.post_office:
                 logging.debug("Closing IMAP connection...")
@@ -131,13 +124,21 @@ class ThreadBase(threading.Thread):
         except Exception as e:
             logging.error("Error unloading TensorFlow model: %s", e, exc_info=True)
 
+        # Only close DB connection on final shutdown to prevent 'free(): invalid pointer' and sync errors
+        if final:
+            try:
+                if self.email_db and hasattr(self.email_db, 'close'):
+                    logging.debug("Closing database connection...")
+                    self.email_db.close()
+            except Exception as e:
+                logging.error("Error closing database connection: %s", e, exc_info=True)
+
     def ThreadSleep(self):
         """
         Sleeps the thread till all the threads have reached the barrier.
-        Cleans up all connections before sleeping.
+        Cleans up IMAP and model connections before sleeping, keeps DB alive.
         """
-        self.CleanUpConnections()
-        self.mail_net.unload_model()
+        self.CleanUpConnections(final=False)
         try:
             # Use timeout to prevent indefinite blocking if stop_event is set
             self.barrier.wait(timeout=5)

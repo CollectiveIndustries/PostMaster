@@ -17,10 +17,22 @@ class EmailDatabase:
 
     def __init__(self):
         self.db = MariaModule()
-        self._db_lock = threading.Lock()  # Serialize DB calls to prevent 'Commands out of sync' in multi-threaded env
+        self._db_lock = threading.Lock()
+        self._closed = False
+
+    def _ensure_connection(self):
+        """Re-initialize database module if it was closed."""
+        if self._closed:
+            try:
+                self.db = MariaModule()
+                self._closed = False
+                logging.debug("Re-initialized database connection.")
+            except Exception as e:
+                logging.error("Failed to re-initialize database connection: %s", e)
 
     def _safe_execute(self, query: str, params=None, fetch: bool = False, commit: bool = False):
         """Thread-safe wrapper for database execution with debug logging."""
+        self._ensure_connection()
         with self._db_lock:
             try:
                 logging.debug("DB Query: %s | Params: %s", query.strip().replace('\n', ' '), params)
@@ -29,11 +41,23 @@ class EmailDatabase:
                     logging.debug("DB Fetch Result: %s rows", len(result))
                 return result
             except Exception as e:
+                err_str = str(e)
                 logging.error("MariaDB execute error: %s | Query: %s | Params: %s", e, query.strip(), params)
+                # Attempt to reconnect on known connection errors
+                if any(kw in err_str for kw in ["Lost connection", "Commands out of sync", "NoneType", "closed"]):
+                    try:
+                        self.db = MariaModule()
+                        self._closed = False
+                        logging.debug("Attempted DB reconnection after error.")
+                    except Exception as re_err:
+                        logging.error("DB reconnection failed: %s", re_err)
                 raise
 
     def close(self) -> None:
         """Safely close the database connection if supported by the underlying module."""
+        if self._closed:
+            return
+        self._closed = True
         try:
             if hasattr(self.db, 'close') and callable(self.db.close):
                 self.db.close()
@@ -44,13 +68,15 @@ class EmailDatabase:
 
     def check_and_reconnect(self) -> None:
         """Check database connection and reconnect if necessary."""
+        self._ensure_connection()
         if hasattr(self.db, 'check_and_reconnect'):
             self.db.check_and_reconnect()
         elif hasattr(self.db, 'conn') and hasattr(self.db.conn, 'ping'):
             try:
                 self.db.conn.ping(reconnect=True)
             except Exception:
-                pass
+                self.db = MariaModule()
+                self._closed = False
 
     def add_email_hash(self, hash_id: str, x_gm_msgid: str, classification_id: str) -> None:
         logging.debug("Adding email hash: %s for msgid %s", hash_id, x_gm_msgid)
@@ -107,8 +133,6 @@ class EmailDatabase:
             add_query = "INSERT INTO classification_folders (classification_id, folder_name) VALUES (%s, %s)"
             self._safe_execute(add_query, (classification_id, folder_name), commit=True)
         except Exception as e:
-            # Catches ProgrammingError (missing table) and InterfaceError (Commands out of sync)
-            # to prevent thread crashes during startup if schema is not fully provisioned.
             logging.error("Failed to add folder/classification: %s", e)
             logging.warning("Ensure database schema is fully provisioned before starting threads.")
 
@@ -137,16 +161,12 @@ class EmailDatabase:
         """
         params = [(msg_id, thread_marker) for msg_id in msg_ids]
         try:
-            with self._db_lock:
-                cursor = self.db.conn.cursor()
-                cursor.executemany(query, params)
-                self.db.conn.commit()
-                cursor.close()
+            # Use _safe_execute for each item to avoid cursor/connection state issues and rollback crashes
+            for p in params:
+                self._safe_execute(query, p, commit=True)
             return True
         except Exception as e:
             logging.error("Error updating mail queue: %s", e)
-            with self._db_lock:
-                self.db.conn.rollback()
             return False
 
     def fetch_mail_from_queue(self, thread_marker: str, batch_size: int) -> Generator[str, None, None]:
@@ -175,18 +195,9 @@ class EmailDatabase:
     def pop_from_que(self, msgid: int, thread_marker: str) -> bool:
         query = "DELETE FROM mail_que WHERE x_gm_msgid=%s AND thread_marker=%s"
         try:
-            with self._db_lock:
-                cursor = self.db.conn.cursor()
-                cursor.execute(query, (msgid, thread_marker))
-                affected = cursor.rowcount
-                if affected > 0:
-                    self.db.conn.commit()
-                else:
-                    self.db.conn.rollback()
-                cursor.close()
+            result = self._safe_execute(query, (msgid, thread_marker), commit=True)
+            affected = getattr(result, 'rowcount', 0) if result else 0
             return affected > 0
         except Exception as e:
             logging.error("Error popping from queue: %s", e)
-            with self._db_lock:
-                self.db.conn.rollback()
             return False
