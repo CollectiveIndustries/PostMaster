@@ -109,14 +109,14 @@ class ThreadBase(threading.Thread):
         """
         try:
             if self.email_db and hasattr(self.email_db, 'close'):
-                logging.info("Closing database connection...")
+                logging.debug("Closing database connection...")
                 self.email_db.close()
         except Exception as e:
             logging.error("Error closing database connection: %s", e, exc_info=True)
 
         try:
             if self.post_office:
-                logging.info("Closing IMAP connection...")
+                logging.debug("Closing IMAP connection...")
                 if hasattr(self.post_office, 'close'):
                     self.post_office.close()
                 if hasattr(self.post_office, 'logout'):
@@ -126,7 +126,7 @@ class ThreadBase(threading.Thread):
 
         try:
             if self.mail_net and hasattr(self.mail_net, "unload_model"):
-                logging.info("Unloading TensorFlow model...")
+                logging.debug("Unloading TensorFlow model...")
                 self.mail_net.unload_model()
         except Exception as e:
             logging.error("Error unloading TensorFlow model: %s", e, exc_info=True)
@@ -139,9 +139,12 @@ class ThreadBase(threading.Thread):
         self.CleanUpConnections()
         self.mail_net.unload_model()
         try:
-            self.barrier.wait()
+            # Use timeout to prevent indefinite blocking if stop_event is set
+            self.barrier.wait(timeout=5)
         except threading.BrokenBarrierError:
-            print(f"{self.name} barrier broken, exiting.")
+            logging.debug("%s barrier broken, exiting.", self.name)
+        except Exception:
+            pass
 
 
 class TrainerThread(ThreadBase):
@@ -170,13 +173,14 @@ class TrainerThread(ThreadBase):
 
         try:
             while not self.stop_event.is_set():
-                logging.info("Checking IMAP state and database connectivity.")
+                logging.debug("Checking IMAP state and database connectivity.")
                 self.post_office.check_imap_state(readonly=False)
                 self.email_db.check_and_reconnect()
 
                 # Fetch emails from IMAP
-                logging.info("Checking for mail in '%s'.", self.src)
+                logging.debug("Checking for mail in '%s'.", self.src)
                 total = self.post_office.total_emails(self.src)
+                logging.debug("Total emails in '%s': %s", self.src, total)
 
                 if total == 0:
                     logging.info("No emails to process in '%s'. Sleeping until the next cycle.", self.src)
@@ -189,12 +193,14 @@ class TrainerThread(ThreadBase):
                 start_time = time.time()
 
                 for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
+                    logging.debug("Fetched batch of %s X-GM-MSGIDs", len(batch))
                     self.email_db.update_mail_queue(self.name, batch)
                     log_progress(len(batch) + index, total, start_time, stage="Fetching X-GM-MSGIDs")
                     index += len(batch)
 
                 # Check if there are emails to process
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
+                logging.debug("Emails queued for processing: %s", total_count)
 
                 if total_count > 0:
                     logging.info("Total emails to process: %s. Beginning training cycle.", total_count)
@@ -256,6 +262,7 @@ class TrainerThread(ThreadBase):
             with self.rlock:  # Ensure thread-safe model access
                 # Tokenizer and model training
                 email_texts = [email.text() for email in email_batch]
+                logging.debug("Extracted text samples: %s", [t[:50] + "..." for t in email_texts[:3]])
                 self.mail_net.fit_tokenizer(email_texts)
                 labels = [self.class_id] * len(email_batch)
                 self.mail_net.train(email_batch, labels)
@@ -323,13 +330,13 @@ class ClassificationThread(ThreadBase):
 
     def run(self):
         """Main thread runner."""
-        logging.info("Trainer thread for '%s' started.", self.mailbox)
+        logging.info("Classification thread for '%s' started.", self.mailbox)
         self.post_office = PostOffice("gmail", {"email": config.EMAIL_ADDRESS, "password": config.PASSWORD})
 
         try:
             while not self.stop_event.is_set():
                 self.ThreadSleep()
-                logging.info("Checking IMAP state and database connectivity.")
+                logging.debug("Checking IMAP state and database connectivity.")
                 self.post_office.check_imap_state(readonly=False)
                 self.email_db.check_and_reconnect()
 
@@ -361,6 +368,7 @@ class ClassificationThread(ThreadBase):
             list: A list of email X-GM-MSGIDs to process.
         """
         total = self.post_office.total_emails(self.mailbox)
+        logging.debug("Total emails in classification mailbox '%s': %s", self.mailbox, total)
         x_gm_msgids = []
 
         index = 0

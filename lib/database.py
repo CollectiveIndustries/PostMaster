@@ -4,6 +4,7 @@ to manage email hashes, classifications, folders, mail queue, and processing log
 """
 
 import logging
+import threading
 from typing import Dict, Generator, List, Optional
 
 from CollectiveCore.MariaMod import MariaModule
@@ -16,6 +17,20 @@ class EmailDatabase:
 
     def __init__(self):
         self.db = MariaModule()
+        self._db_lock = threading.Lock()  # Serialize DB calls to prevent 'Commands out of sync' in multi-threaded env
+
+    def _safe_execute(self, query: str, params=None, fetch: bool = False, commit: bool = False):
+        """Thread-safe wrapper for database execution with debug logging."""
+        with self._db_lock:
+            try:
+                logging.debug("DB Query: %s | Params: %s", query.strip().replace('\n', ' '), params)
+                result = self.db.execute(query, params, fetch=fetch, commit=commit)
+                if fetch and result:
+                    logging.debug("DB Fetch Result: %s rows", len(result))
+                return result
+            except Exception as e:
+                logging.error("MariaDB execute error: %s | Query: %s | Params: %s", e, query.strip(), params)
+                raise
 
     def close(self) -> None:
         """Safely close the database connection if supported by the underlying module."""
@@ -44,20 +59,20 @@ class EmailDatabase:
             VALUES (%s, %s, %s)
         """
         try:
-            result = self.db.execute(query, (hash_id, x_gm_msgid, classification_id), commit=True)
-            logging.debug("DB insert affected %s rows", result.rowcount)
+            result = self._safe_execute(query, (hash_id, x_gm_msgid, classification_id), commit=True)
+            logging.debug("DB insert affected %s rows", result.rowcount if hasattr(result, 'rowcount') else 'N/A')
         except Exception as e:
             logging.error("Failed to add email hash: %s", str(e))
             raise
 
     def get_classification(self, x_gm_msgid: str) -> Optional[str]:
         query = "SELECT classification_id FROM email_hashes WHERE x_gm_msgid = %s"
-        result = self.db.execute(query, (x_gm_msgid,), fetch=True)
+        result = self._safe_execute(query, (x_gm_msgid,), fetch=True)
         return result[0]["classification_id"] if result else None
 
     def get_mail_map(self) -> Optional[Dict[str, str]]:
         query = "SELECT classification_id, folder_name FROM classification_folders"
-        result = self.db.execute(query, fetch=True)
+        result = self._safe_execute(query, fetch=True)
         return {row["classification_id"]: row["folder_name"] for row in result} if result else None
 
     # pylint: disable=too-many-positional-arguments
@@ -70,13 +85,13 @@ class EmailDatabase:
             INSERT INTO email_processing_log (sequence_number, hash_id, source_folder, destination_folder, status)
             VALUES (%s, %s, %s, %s, %s)
         """
-        self.db.execute(query, (sequence_number, hash_id, source_folder, destination_folder, status), commit=True)
+        self._safe_execute(query, (sequence_number, hash_id, source_folder, destination_folder, status), commit=True)
 
     def add_folder_and_classification(self, classification_id: str, folder_name: str) -> None:
         try:
             # Avoid duplicate folder
             check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
-            if self.db.execute(check_query, (classification_id, folder_name), fetch=True):
+            if self._safe_execute(check_query, (classification_id, folder_name), fetch=True):
                 logging.warning(
                     "Folder '%s' with classification ID '%s' already exists.", folder_name, classification_id
                 )
@@ -86,11 +101,11 @@ class EmailDatabase:
             ensure_query = (
                 "INSERT IGNORE INTO classifications (classification_id, description, is_dynamic) VALUES (%s, '', FALSE)"
             )
-            self.db.execute(ensure_query, (classification_id,), commit=True)
+            self._safe_execute(ensure_query, (classification_id,), commit=True)
 
             # Add folder
             add_query = "INSERT INTO classification_folders (classification_id, folder_name) VALUES (%s, %s)"
-            self.db.execute(add_query, (classification_id, folder_name), commit=True)
+            self._safe_execute(add_query, (classification_id, folder_name), commit=True)
         except Exception as e:
             # Catches ProgrammingError (missing table) and InterfaceError (Commands out of sync)
             # to prevent thread crashes during startup if schema is not fully provisioned.
@@ -103,11 +118,11 @@ class EmailDatabase:
             return
         placeholders = ', '.join(['%s'] * len(hash_ids))
         query = f"UPDATE email_hashes SET trained=%s WHERE x_gm_msgid IN ({placeholders})"
-        self.db.execute(query, [trained, *hash_ids], commit=True)
+        self._safe_execute(query, [trained, *hash_ids], commit=True)
 
     def is_trained(self, x_gm_msgid: str) -> bool:
         query = "SELECT trained FROM email_hashes WHERE x_gm_msgid = %s"
-        result = self.db.execute(query, (x_gm_msgid,), fetch=True)
+        result = self._safe_execute(query, (x_gm_msgid,), fetch=True)
         return result[0]["trained"] if result else False
 
     def update_mail_queue(self, thread_marker: str, msg_ids: List[int]) -> bool:
@@ -122,12 +137,16 @@ class EmailDatabase:
         """
         params = [(msg_id, thread_marker) for msg_id in msg_ids]
         try:
-            self.db.conn.cursor().executemany(query, params)
-            self.db.conn.commit()
+            with self._db_lock:
+                cursor = self.db.conn.cursor()
+                cursor.executemany(query, params)
+                self.db.conn.commit()
+                cursor.close()
             return True
         except Exception as e:
             logging.error("Error updating mail queue: %s", e)
-            self.db.conn.rollback()
+            with self._db_lock:
+                self.db.conn.rollback()
             return False
 
     def fetch_mail_from_queue(self, thread_marker: str, batch_size: int) -> Generator[str, None, None]:
@@ -137,7 +156,7 @@ class EmailDatabase:
             WHERE thread_marker=%s AND processed != -1
             LIMIT %s
         """
-        result = self.db.execute(query, (thread_marker, batch_size), fetch=True)
+        result = self._safe_execute(query, (thread_marker, batch_size), fetch=True)
         x_gm_msgids = [row["x_gm_msgid"] for row in result]
         if x_gm_msgids:
             update_query = f"""
@@ -145,28 +164,29 @@ class EmailDatabase:
                 SET thread_marker=%s
                 WHERE x_gm_msgid IN ({','.join(['%s']*len(x_gm_msgids))}) AND processed != -1
             """
-            self.db.execute(update_query, (thread_marker, *x_gm_msgids), commit=True)
+            self._safe_execute(update_query, (thread_marker, *x_gm_msgids), commit=True)
             yield from x_gm_msgids
 
     def fetch_thread_marker_count(self, thread_marker: str) -> int:
         query = "SELECT COUNT(*) AS total_count FROM mail_que WHERE thread_marker=%s"
-        result = self.db.execute(query, (thread_marker,), fetch=True)
+        result = self._safe_execute(query, (thread_marker,), fetch=True)
         return result[0]["total_count"] if result else 0
 
     def pop_from_que(self, msgid: int, thread_marker: str) -> bool:
         query = "DELETE FROM mail_que WHERE x_gm_msgid=%s AND thread_marker=%s"
         try:
-            cursor = self.db.conn.cursor()
-            cursor.execute(query, (msgid, thread_marker))
-            affected = cursor.rowcount
-            if affected > 0:
-                self.db.conn.commit()
-            else:
-                self.db.conn.rollback()
+            with self._db_lock:
+                cursor = self.db.conn.cursor()
+                cursor.execute(query, (msgid, thread_marker))
+                affected = cursor.rowcount
+                if affected > 0:
+                    self.db.conn.commit()
+                else:
+                    self.db.conn.rollback()
+                cursor.close()
             return affected > 0
         except Exception as e:
             logging.error("Error popping from queue: %s", e)
-            self.db.conn.rollback()
+            with self._db_lock:
+                self.db.conn.rollback()
             return False
-        finally:
-            cursor.close()

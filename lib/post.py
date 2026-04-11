@@ -5,6 +5,7 @@ High-level PostOffice interface that delegates to provider implementations
 """
 
 import email
+import logging
 from typing import Dict, List, Optional
 
 from bs4 import BeautifulSoup
@@ -124,19 +125,29 @@ class Email:
                 ctype = part.get_content_type()
                 disp = part.get("Content-Disposition", "")
                 if ctype == "text/plain" and "attachment" not in disp:
-                    body_plain = part.get_payload(decode=True).decode(errors="ignore")
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body_plain = payload.decode(errors="ignore")
                 elif ctype == "text/html" and "attachment" not in disp:
-                    body_html = part.get_payload(decode=True).decode(errors="ignore")
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body_html = payload.decode(errors="ignore")
                 elif "attachment" in disp:
+                    payload = part.get_payload(decode=True)
                     attachments.append(
                         {
                             "filename": part.get_filename(),
                             "content_type": ctype,
-                            "size": len(part.get_payload(decode=True)),
+                            "size": len(payload) if payload else 0,
                         }
                     )
         else:
-            body_plain = msg.get_payload(decode=True).decode(errors="ignore")
+            payload = msg.get_payload(decode=True)
+            if payload:
+                body_plain = payload.decode(errors="ignore")
+
+        logging.debug("Parsed Email: Subject='%s', From='%s', HasHTML=%s, HasPlain=%s", 
+                      headers.get("Subject", ""), headers.get("From", ""), bool(body_html), bool(body_plain))
 
         return cls(
             message_id=headers.get("Message-ID", ""),
@@ -156,8 +167,15 @@ class Email:
         """Return cleaned text for ML processing."""
         if self.body_html:
             soup = BeautifulSoup(self.body_html, "html.parser")
+            # Remove non-content tags that pollute ML features
+            for tag in soup(["script", "style", "meta", "link", "head", "title", "noscript", "iframe"]):
+                tag.decompose()
             return soup.get_text(separator=" ", strip=True)
         return self.body_plain or ""
+
+    def text(self) -> str:
+        """Convenience alias for get_text_content()."""
+        return self.get_text_content()
 
     def to_vector_input(self) -> Dict[str, str]:
         """Prepare input for ML (TensorFlow)."""
