@@ -118,7 +118,7 @@ def provision_database(sql_path: str = "sql/install.sql", db_user=None, db_pass=
 
 
 # pylint: disable=too-many-return-statements
-def ensure_database_ready(config_path: str | None = None) -> bool:
+def ensure_database_ready(config_path: str | None = None, sql_path: str = "sql/install.sql") -> bool:
     """
     Main entry point to ensure MariaDB is running and the application database is provisioned.
     Call this BEFORE importing `lib.config` to prevent OperationalError on startup.
@@ -157,7 +157,7 @@ def ensure_database_ready(config_path: str | None = None) -> bool:
         result = run_cmd(cmd, db_user=db_user, db_pass=db_pass, db_host=db_host)
         if db_name not in result.stdout:
             logger.info("Database '%s' not found. Running provisioning...", db_name)
-            return provision_database(db_user=db_user, db_pass=db_pass, db_host=db_host)
+            return provision_database(sql_path=sql_path, db_user=db_user, db_pass=db_pass, db_host=db_host)
         else:
             logger.info("Database '%s' already exists. Skipping provisioning.", db_name)
             return True
