@@ -28,6 +28,13 @@ if __name__ == "__main__":
     from lib.config import config
     from lib.yarn import ClassificationThread, LogRotation, TrainerThread
 
+    # Validate configuration before proceeding to thread initialization
+    try:
+        config.validate()
+    except ValueError as e:
+        logging.error("Configuration error: %s", e)
+        sys.exit(1)
+
     # Version and package metadata
     __version__ = "0.1.0"
 

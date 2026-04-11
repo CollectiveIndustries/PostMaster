@@ -74,6 +74,19 @@ class Conf:
             "database": self.SQL_DATABASE,
         }
 
+    def validate(self) -> None:
+        """Validate critical configuration values before application startup."""
+        errors = []
+        if not self.IMAP_URL or not str(self.IMAP_URL).strip():
+            errors.append("IMAP URL is empty or missing in 'ConnectionSettings.url'")
+        if not self.EMAIL_ADDRESS or not str(self.EMAIL_ADDRESS).strip():
+            errors.append("Email address is empty or missing in 'ConnectionSettings.email_address'")
+        if not self.PASSWORD or not str(self.PASSWORD).strip():
+            errors.append("Password is empty or missing in 'ConnectionSettings.password'")
+        
+        if errors:
+            raise ValueError("Configuration validation failed:\n" + "\n".join(f" - {e}" for e in errors))
+
 
 def parse_args(argv: Optional[list[str]] = None):
     parser = argparse.ArgumentParser(description="Spam Vanquisher Configuration")
