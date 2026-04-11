@@ -32,8 +32,7 @@ CREATE TABLE IF NOT EXISTS `classification_folders` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`map_id`),
   UNIQUE KEY `folder_name` (`folder_name`),
-  KEY `classification_id` (`classification_id`),
-  CONSTRAINT `classification_folders_ibfk_1` FOREIGN KEY (`classification_id`) REFERENCES `classifications` (`classification_id`)
+  KEY `classification_id` (`classification_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
@@ -48,10 +47,8 @@ CREATE TABLE IF NOT EXISTS `email_hashes` (
   `trained` tinyint(1) DEFAULT 0,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`hash_id`),
-  UNIQUE KEY `hash_id` (`hash_id`),
   UNIQUE KEY `X_GM_MSGID` (`X_GM_MSGID`),
-  KEY `idx_email_hashes_classification` (`classification_id`),
-  KEY `idx_email_hashes_x_gm_msgid` (`X_GM_MSGID`)
+  KEY `idx_email_hashes_classification` (`classification_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
@@ -68,8 +65,7 @@ CREATE TABLE IF NOT EXISTS `email_processing_log` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`log_id`),
   KEY `hash_id` (`hash_id`),
-  KEY `idx_log_status` (`status`),
-  CONSTRAINT `email_processing_log_ibfk_1` FOREIGN KEY (`hash_id`) REFERENCES `email_hashes` (`hash_id`)
+  KEY `idx_log_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Data exporting was unselected.
