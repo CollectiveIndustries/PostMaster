@@ -153,14 +153,24 @@ def ensure_database_ready(config_path: str | None = None, sql_path: str = "sql/i
 
     logger.info("MariaDB is running. Checking database provisioning...")
     try:
+        # Check if database exists
         cmd = ["mysql", "-u", db_user, "-h", db_host, "-e", f"SHOW DATABASES LIKE '{db_name}';"]
         result = run_cmd(cmd, db_user=db_user, db_pass=db_pass, db_host=db_host)
-        if db_name not in result.stdout:
+        db_exists = db_name in result.stdout
+
+        if not db_exists:
             logger.info("Database '%s' not found. Running provisioning...", db_name)
             return provision_database(sql_path=sql_path, db_user=db_user, db_pass=db_pass, db_host=db_host)
-        else:
-            logger.info("Database '%s' already exists. Skipping provisioning.", db_name)
-            return True
+
+        # Check if essential tables exist to ensure schema is complete
+        cmd = ["mysql", "-u", db_user, "-h", db_host, "-e", f"SHOW TABLES FROM `{db_name}` LIKE 'classification_folders';"]
+        result = run_cmd(cmd, db_user=db_user, db_pass=db_pass, db_host=db_host)
+        if "classification_folders" not in result.stdout:
+            logger.info("Database '%s' exists but schema is incomplete. Running provisioning...", db_name)
+            return provision_database(sql_path=sql_path, db_user=db_user, db_pass=db_pass, db_host=db_host)
+
+        logger.info("Database '%s' is fully provisioned.", db_name)
+        return True
     except subprocess.CalledProcessError as e:
         logger.error("Failed to verify database existence: %s", e.stderr)
         return False
