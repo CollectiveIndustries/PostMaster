@@ -1,25 +1,26 @@
+# config.d/config.yaml
 database:
-  user: postmaster_user
-  password: qa9CvLz8Nv3wcyBr9TAS6TzkCaEmRHZA
+  user: SpamVanquisher
+  password: change_me
   host: localhost
-  database: postmaster_db
+  database: SpamVanquisherDB
   port: 3306
 
 accounts:
-  - provider: gmail
-    email: yourname@gmail.com
-    password: "your_regular_password_or_app_password"  # Your 16-character App Password (with or without spaces)
-    imap_server: imap.gmail.com
-    imap_port: 993
-    smtp_server: smtp.gmail.com
-    smtp_port: 587
-  - provider: outlook
-    email: yourname@hotmail.com
-    password: "your_regular_password_or_app_password"
-    imap_server: outlook.office365.com
-    imap_port: 993
-    smtp_server: smtp-mail.outlook.com
-    smtp_port: 587
+   - provider: gmail
+     email: yourname@gmail.com
+     password: "your_regular_password_or_app_password"   
+     imap_server: imap.gmail.com
+     imap_port: 993
+     smtp_server: smtp.gmail.com
+     smtp<｜begin▁of▁sentence｜>port: 587
+   - provider: hotmail
+     email: yourname@hotmail.com
+     password: "your_regular_password_or_app_password"   
+     imap_server: outlook.office365.com
+     imap_port: 993
+     smtp_server: smtp-mail.outlook.com
+     smtp_port: 587
 
 Folders:
   inbox: INBOX
@@ -43,13 +44,13 @@ EmailParts:
 
 MySQL:
   user: SpamVanquisher
-  host: 127.0.0.1
-  database: SpamVanquisher
+  host: localhost
+  database: SpamVanquisherDB
   password: change_me
   port: 3306
 
 Logging:
   log_path: logs/SpamVanquisher.log
   backup_count: 4
-  CheckInterval: 300
-  LogSize: 2g
+  check_interval: 300
+  max_size: 2g
