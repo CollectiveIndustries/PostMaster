@@ -15,7 +15,7 @@ class Conf:
         # Store path for later initialization (but don't load yet)
         self._pending_path = config_path
         self._initialized = False
-        self._show_config = False  # Set to True to print config on load
+        self._show_config = False
     
     def _ensure_initialized(self):
         """Load config if not already loaded."""
@@ -28,56 +28,48 @@ class Conf:
         """Load all configuration attributes from the manager."""
         # Connection settings (from ConnectionSettings section)
         conn_settings = config_manager.get_section('ConnectionSettings')
-        self.EMAIL_ADDRESS = conn_settings.get('email_address', '')
-        self.PASSWORD = conn_settings.get('password', '').replace(' ', '')
-        self.IMAP_URL = conn_settings.get('url', 'imap.gmail.com')
-        self.IMAP_PORT = conn_settings.get('port', 993)
+        self.EMAIL_ADDRESS = conn_settings.get('email_address', '') if conn_settings else ''
+        self.PASSWORD = conn_settings.get('password', '').replace(' ', '') if conn_settings else ''
+        self.IMAP_URL = conn_settings.get('url', 'imap.gmail.com') if conn_settings else 'imap.gmail.com'
+        self.IMAP_PORT = conn_settings.get('port', 993) if conn_settings else 993
         
         # Folder settings
         folders = config_manager.get_section('Folders')
-        self.INBOX = folders.get('inbox', 'INBOX')
-        self.SPAM_FOLDER = folders.get('spam_folder', 'SPAM')
-        self.HAM_FOLDER = folders.get('ham_folder', 'HAM')
-        self.UNSORTED = folders.get('unsorted', 'UNSORTED')
-        self.INFECTED_FOLDER = folders.get('infected_folder', 'INFECTED')
-        self.SPAM_LEARN = folders.get('spam_learn', 'SPAM_LEARN')
-        self.HAM_LEARN = folders.get('ham_learn', 'HAM_LEARN')
+        self.INBOX = folders.get('inbox', 'INBOX') if folders else 'INBOX'
+        self.SPAM_FOLDER = folders.get('spam_folder', 'SPAM') if folders else 'SPAM'
+        self.HAM_FOLDER = folders.get('ham_folder', 'HAM') if folders else 'HAM'
+        self.UNSORTED = folders.get('unsorted', 'UNSORTED') if folders else 'UNSORTED'
+        self.INFECTED_FOLDER = folders.get('infected_folder', 'INFECTED') if folders else 'INFECTED'
+        self.SPAM_LEARN = folders.get('spam_learn', 'SPAM_LEARN') if folders else 'SPAM_LEARN'
+        self.HAM_LEARN = folders.get('ham_learn', 'HAM_LEARN') if folders else 'HAM_LEARN'
         
-        # Daemon settings - WITH DEBUG
+        # Daemon settings - FORCE READ FROM CONFIG MANAGER
         daemon = config_manager.get_section('DaemonSettings')
-        import logging as log
-        log.info(f"DEBUG in _load_attributes: DaemonSettings = {daemon}")
-        
-        if daemon:
+        if daemon and 'data_path' in daemon:
             self.TRAINING_DATA_PATH = daemon.get('data_path')
-            log.info(f"DEBUG: data_path from daemon = {self.TRAINING_DATA_PATH}")
-            if not self.TRAINING_DATA_PATH:
-                log.warning("data_path not found in DaemonSettings, using default")
-                self.TRAINING_DATA_PATH = '/opt/spamvanquisher/data'
-            self.SCAN_TIME = daemon.get('scan_time', 300)
-            self.BATCH_SIZE = daemon.get('batch_size', 100)
+            logging.info(f"Loaded TRAINING_DATA_PATH from config: {self.TRAINING_DATA_PATH}")
         else:
-            log.warning("DaemonSettings section not found, using defaults")
+            # Fallback to config value or default
             self.TRAINING_DATA_PATH = '/opt/spamvanquisher/data'
-            self.SCAN_TIME = 300
-            self.BATCH_SIZE = 100
+            logging.warning(f"DaemonSettings.data_path not found, using: {self.TRAINING_DATA_PATH}")
         
-        log.info(f"DEBUG: Final TRAINING_DATA_PATH = {self.TRAINING_DATA_PATH}")
+        self.SCAN_TIME = daemon.get('scan_time', 300) if daemon else 300
+        self.BATCH_SIZE = daemon.get('batch_size', 100) if daemon else 100
         
         # Email parts for training
         email_parts = config_manager.get_section('EmailParts')
-        self.USE_SUBJECT = email_parts.get('use_subject', True)
-        self.USE_SENDER = email_parts.get('use_sender', True)
-        self.USE_RECIPIENT = email_parts.get('use_recipient', False)
-        self.USE_BODY = email_parts.get('use_body', True)
+        self.USE_SUBJECT = email_parts.get('use_subject', True) if email_parts else True
+        self.USE_SENDER = email_parts.get('use_sender', True) if email_parts else True
+        self.USE_RECIPIENT = email_parts.get('use_recipient', False) if email_parts else False
+        self.USE_BODY = email_parts.get('use_body', True) if email_parts else True
         
         # MySQL settings (from MySQL section)
         mysql_settings = config_manager.get_section('MySQL')
-        self.SQL_USER = mysql_settings.get('user', 'SpamVanquisher')
-        self.SQL_HOST = mysql_settings.get('host', '127.0.0.1')
-        self.SQL_DATABASE = mysql_settings.get('database', 'SpamVanquisher')
-        self.SQL_PASSWORD = mysql_settings.get('password', '')
-        self.SQL_PORT = mysql_settings.get('port', 3306)
+        self.SQL_USER = mysql_settings.get('user', 'SpamVanquisher') if mysql_settings else 'SpamVanquisher'
+        self.SQL_HOST = mysql_settings.get('host', '127.0.0.1') if mysql_settings else '127.0.0.1'
+        self.SQL_DATABASE = mysql_settings.get('database', 'SpamVanquisher') if mysql_settings else 'SpamVanquisher'
+        self.SQL_PASSWORD = mysql_settings.get('password', '') if mysql_settings else ''
+        self.SQL_PORT = mysql_settings.get('port', 3306) if mysql_settings else 3306
         
         # Also support 'database' section as fallback (for compatibility)
         db_settings = config_manager.get_section('database')
@@ -90,12 +82,12 @@ class Conf:
         
         # Logger settings
         logging_cfg = config_manager.get_section('Logging')
-        self.LOG_FILE = logging_cfg.get('log_path', 'logs/SpamVanquisher.log')
-        self.BACKUP_COUNT = logging_cfg.get('backup_count', 4)
-        self.CHECK_INTERVAL = logging_cfg.get('CheckInterval', 300)
-        self.MAX_SIZE = self._parse_size(logging_cfg.get('LogSize', '2g'))
+        self.LOG_FILE = logging_cfg.get('log_path', 'logs/SpamVanquisher.log') if logging_cfg else 'logs/SpamVanquisher.log'
+        self.BACKUP_COUNT = logging_cfg.get('backup_count', 4) if logging_cfg else 4
+        self.CHECK_INTERVAL = logging_cfg.get('CheckInterval', 300) if logging_cfg else 300
+        self.MAX_SIZE = self._parse_size(logging_cfg.get('LogSize', '2g')) if logging_cfg else 2 * 1024**3
         
-        # Print config if enabled (with password masking)
+        # Print config if enabled
         if self._show_config:
             self._print_config()
     
@@ -104,10 +96,6 @@ class Conf:
         logging.info("🔧 Loaded Configuration:")
         logging.info(f"  EMAIL_ADDRESS: {self.EMAIL_ADDRESS}")
         logging.info(f"  PASSWORD: {'*' * len(self.PASSWORD) if self.PASSWORD else 'NOT SET'}")
-        logging.info(f"  IMAP_URL: {self.IMAP_URL}")
-        logging.info(f"  IMAP_PORT: {self.IMAP_PORT}")
-        logging.info(f"  SPAM_LEARN: {self.SPAM_LEARN}")
-        logging.info(f"  HAM_LEARN: {self.HAM_LEARN}")
         logging.info(f"  TRAINING_DATA_PATH: {self.TRAINING_DATA_PATH}")
         logging.info(f"  SCAN_TIME: {self.SCAN_TIME}")
         logging.info(f"  BATCH_SIZE: {self.BATCH_SIZE}")
