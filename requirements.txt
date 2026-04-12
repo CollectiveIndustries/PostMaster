@@ -1,5 +1,5 @@
 # Core ML & Data Processing
-tensorflow==2.18.0
+tensorflow
 
 # Email Providers & APIs
 google-auth-oauthlib

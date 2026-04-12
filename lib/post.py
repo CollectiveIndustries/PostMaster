@@ -135,19 +135,20 @@ class Email:
                 elif "attachment" in disp:
                     payload = part.get_payload(decode=True)
                     attachments.append(
-                        {
-                            "filename": part.get_filename(),
-                            "content_type": ctype,
-                            "size": len(payload) if payload else 0,
-                        }
+                        {"filename": part.get_filename(), "content_type": ctype, "size": len(payload) if payload else 0}
                     )
         else:
             payload = msg.get_payload(decode=True)
             if payload:
                 body_plain = payload.decode(errors="ignore")
 
-        logging.debug("Parsed Email: Subject='%s', From='%s', HasHTML=%s, HasPlain=%s", 
-                      headers.get("Subject", ""), headers.get("From", ""), bool(body_html), bool(body_plain))
+        logging.debug(
+            "Parsed Email: Subject='%s', From='%s', HasHTML=%s, HasPlain=%s",
+            headers.get("Subject", ""),
+            headers.get("From", ""),
+            bool(body_html),
+            bool(body_plain),
+        )
 
         return cls(
             message_id=headers.get("Message-ID", ""),

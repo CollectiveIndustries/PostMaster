@@ -35,7 +35,7 @@ class EmailDatabase:
         """Convert tuple results to dictionaries for consistent access."""
         if not result:
             return []
-        
+
         normalized = []
         for row in result:
             if isinstance(row, dict):
@@ -65,9 +65,14 @@ class EmailDatabase:
 
                     # Attempt to reconnect on known connection errors
                     reconnect_keywords = [
-                        "Lost connection", "Commands out of sync", "NoneType", 
-                        "closed", "packets out of order", "Server has gone away",
-                        "Connection refused", "Can't connect"
+                        "Lost connection",
+                        "Commands out of sync",
+                        "NoneType",
+                        "closed",
+                        "packets out of order",
+                        "Server has gone away",
+                        "Connection refused",
+                        "Can't connect",
                     ]
                     if any(kw in err_str for kw in reconnect_keywords):
                         try:
@@ -135,7 +140,7 @@ class EmailDatabase:
         result = self._safe_execute(query, fetch=True)
         if not result:
             return None
-        
+
         mapping = {}
         for row in result:
             if isinstance(row, dict):
@@ -228,14 +233,14 @@ class EmailDatabase:
         result = self._safe_execute(query, (thread_marker, batch_size), fetch=True)
         if not result:
             return
-        
+
         x_gm_msgids = []
         for row in result:
             if isinstance(row, dict):
                 x_gm_msgids.append(row.get("x_gm_msgid"))
             elif isinstance(row, tuple) and len(row) > 0:
                 x_gm_msgids.append(row[0])
-        
+
         if x_gm_msgids:
             # Mark these as being processed to avoid re-fetching
             update_query = f"""
@@ -251,7 +256,7 @@ class EmailDatabase:
         result = self._safe_execute(query, (thread_marker,), fetch=True)
         if not result:
             return 0
-        
+
         if result and result[0]:
             if isinstance(result[0], dict):
                 return result[0].get("total_count", 0)
@@ -272,14 +277,14 @@ class EmailDatabase:
     def get_processed_x_gm_msgids(self, thread_marker: str) -> Set[int]:
         """Get set of X-GM-MSGIDs that have already been processed by this thread"""
         query = """
-            SELECT x_gm_msgid 
-            FROM mail_que 
+            SELECT x_gm_msgid
+            FROM mail_que
             WHERE thread_marker = %s AND processed = 1
         """
         result = self._safe_execute(query, (thread_marker,), fetch=True)
         if not result:
             return set()
-        
+
         processed_ids = set()
         for row in result:
             if isinstance(row, dict):
@@ -291,8 +296,8 @@ class EmailDatabase:
     def mark_as_processed(self, x_gm_msgid: int, thread_marker: str) -> bool:
         """Mark an email as processed in the queue"""
         query = """
-            UPDATE mail_que 
-            SET processed = 1, processed_at = CURRENT_TIMESTAMP 
+            UPDATE mail_que
+            SET processed = 1, processed_at = CURRENT_TIMESTAMP
             WHERE x_gm_msgid = %s AND thread_marker = %s
         """
         try:

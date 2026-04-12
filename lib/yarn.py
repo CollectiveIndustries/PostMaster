@@ -308,7 +308,7 @@ class TrainerThread(ThreadBase):
                 self.email_db.add_email_hash(msg.hash, msg.msgid, self.class_id)
                 self.email_db.log_email_processing(msg.msgid, msg.hash, self.src, self.dst, "trained")
                 self.email_db.set_trained_flag([msg.msgid])
-                
+
                 # Mark as processed in queue
                 self.email_db.mark_as_processed(msg.msgid, self.name)
                 success = self.email_db.pop_from_que(msg.msgid, self.name)

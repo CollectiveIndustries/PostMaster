@@ -4,7 +4,7 @@ import re
 import smtplib
 import time
 from email.mime.text import MIMEText
-from typing import List, Generator, Optional
+from typing import Generator, List, Optional
 
 from .base import MailProvider
 
@@ -138,7 +138,7 @@ class GmailProvider(MailProvider):
 
         msg_ids = data[0].split()
         batch = []
-        
+
         for msg_id in msg_ids:
             status, msg_data = self.imap_conn.fetch(msg_id, "(X-GM-MSGID)")
             if status == "OK":
@@ -147,11 +147,11 @@ class GmailProvider(MailProvider):
                 match = re.search(r'X-GM-MSGID (\d+)', msg_str)
                 if match:
                     batch.append(int(match.group(1)))
-                    
+
                     if len(batch) >= batch_size:
                         yield batch
                         batch = []
-        
+
         if batch:
             yield batch
 
@@ -196,7 +196,7 @@ class GmailProvider(MailProvider):
                 logging.debug("Moved email UID %s to %s", uid, destination_folder)
             except Exception as e:
                 logging.error("Failed to move email UID %s: %s", uid, e)
-        
+
         # Expunge deleted messages
         try:
             self.imap_conn.expunge()

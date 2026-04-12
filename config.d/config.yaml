@@ -9,14 +9,14 @@ database:
 accounts:
    - provider: gmail
      email: yourname@gmail.com
-     password: "your_regular_password_or_app_password"   
+     password: "your_regular_password_or_app_password"
      imap_server: imap.gmail.com
      imap_port: 993
      smtp_server: smtp.gmail.com
      smtp_port: 587
    - provider: hotmail
      email: yourname@hotmail.com
-     password: "your_regular_password_or_app_password"   
+     password: "your_regular_password_or_app_password"
      imap_server: outlook.office365.com
      imap_port: 993
      smtp_server: smtp-mail.outlook.com

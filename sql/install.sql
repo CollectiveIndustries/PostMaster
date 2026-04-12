@@ -21,7 +21,7 @@ CREATE TABLE classifications (
 );
 
 -- Insert default classifications
-INSERT INTO classifications (classification_id, description, is_dynamic) VALUES 
+INSERT INTO classifications (classification_id, description, is_dynamic) VALUES
 (0, 'Spam - Unsolicited bulk email', FALSE),
 (1, 'Ham - Legitimate email', FALSE),
 (2, 'Unsorted - Awaiting classification', FALSE),
@@ -92,7 +92,7 @@ CREATE TABLE email_processing_log (
 
 -- View: Queue Status
 CREATE OR REPLACE VIEW v_queue_status AS
-SELECT 
+SELECT
     thread_marker,
     COUNT(*) as total_queued,
     SUM(CASE WHEN processed = 0 THEN 1 ELSE 0 END) as pending,
@@ -104,7 +104,7 @@ GROUP BY thread_marker;
 
 -- View: Processing Summary
 CREATE OR REPLACE VIEW v_processing_summary AS
-SELECT 
+SELECT
     DATE(processed_at) as date,
     source_folder,
     destination_folder,
@@ -116,7 +116,7 @@ ORDER BY date DESC;
 
 -- View: Classification Distribution
 CREATE OR REPLACE VIEW v_classification_distribution AS
-SELECT 
+SELECT
     c.classification_id,
     c.description,
     COUNT(eh.hash_id) as total_emails,
@@ -142,8 +142,8 @@ DELIMITER //
 
 CREATE PROCEDURE clean_old_queue_entries(IN days_old INT)
 BEGIN
-    DELETE FROM mail_que 
-    WHERE processed = 1 
+    DELETE FROM mail_que
+    WHERE processed = 1
     AND processed_at < DATE_SUB(NOW(), INTERVAL days_old DAY);
 END //
 
@@ -156,22 +156,22 @@ DELIMITER //
 
 CREATE PROCEDURE get_processing_stats()
 BEGIN
-    SELECT 
+    SELECT
         'Total Processed' as metric,
         COUNT(*) as value
     FROM email_processing_log
-    
+
     UNION ALL
-    
-    SELECT 
+
+    SELECT
         'Currently Queued',
         COUNT(*)
     FROM mail_que
     WHERE processed = 0
-    
+
     UNION ALL
-    
-    SELECT 
+
+    SELECT
         'Completed Training',
         COUNT(*)
     FROM email_hashes
@@ -183,7 +183,7 @@ DELIMITER ;
 -- ============================================
 -- Initial folder mappings
 -- ============================================
-INSERT INTO classification_folders (classification_id, folder_name) VALUES 
+INSERT INTO classification_folders (classification_id, folder_name) VALUES
 (0, 'INBOX/Spam'),
 (1, 'INBOX/Ham'),
 (2, 'INBOX/Unsorted'),

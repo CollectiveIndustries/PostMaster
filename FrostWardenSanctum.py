@@ -19,19 +19,20 @@ def parse_early_args():
 
 if __name__ == "__main__":
     early_args = parse_early_args()
-    
+
     # Initialize config manager FIRST
     from lib.config_manager import config_manager
+
     config_manager.initialize(early_args.config)
-    
+
     logging.basicConfig(level=getattr(logging, early_args.log_level), format="%(levelname)s:%(message)s")
-    
+
     # Now import config (it will use already-initialized manager)
     from lib.config import config
-    
+
     if not ensure_database_ready(config_path=early_args.config, sql_path=early_args.install_sql):
         sys.exit("Failed to initialize MariaDB. Please check your database setup.")
-    
+
     from lib.yarn import ClassificationThread, LogRotation, TrainerThread
 
     # Rest of your code remains unchanged...

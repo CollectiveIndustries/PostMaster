@@ -8,16 +8,17 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+
 def load_db_config(config_path: str | None = None) -> dict:
     """Load database configuration from the ConfigManager."""
     from .config_manager import config_manager
-    
+
     # Initialize config manager if not already done
     if config_path:
         config_manager.initialize(config_path)
     else:
         config_manager.initialize()
-    
+
     db_cfg = config_manager.get_section("database")
     return {
         "user": db_cfg.get("user", "root"),
@@ -157,7 +158,15 @@ def ensure_database_ready(config_path: str | None = None, sql_path: str = "sql/i
             return provision_database(sql_path=sql_path, db_user=db_user, db_pass=db_pass, db_host=db_host)
 
         # Check if essential tables exist to ensure schema is complete
-        cmd = ["mysql", "-u", db_user, "-h", db_host, "-e", f"SHOW TABLES FROM `{db_name}` LIKE 'classification_folders';"]
+        cmd = [
+            "mysql",
+            "-u",
+            db_user,
+            "-h",
+            db_host,
+            "-e",
+            f"SHOW TABLES FROM `{db_name}` LIKE 'classification_folders';",
+        ]
         result = run_cmd(cmd, db_user=db_user, db_pass=db_pass, db_host=db_host)
         if "classification_folders" not in result.stdout:
             logger.info("Database '%s' exists but schema is incomplete. Running provisioning...", db_name)

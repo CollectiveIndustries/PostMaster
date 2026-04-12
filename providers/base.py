@@ -1,6 +1,6 @@
 # providers/base.py
 from abc import ABC, abstractmethod
-from typing import List, Generator, Optional
+from typing import Generator, List, Optional
 
 
 class MailProvider(ABC):

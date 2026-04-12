@@ -5,25 +5,22 @@ Usage: python scripts/debug_postoffice.py [--config CONFIG_PATH] [--verbose]
 """
 
 import argparse
-import sys
 import logging
+import sys
 from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.config_manager import config_manager
 from lib.config import config
+from lib.config_manager import config_manager
 from lib.post import PostOffice
 
 
 def setup_logging(verbose: bool = False):
     """Setup logging configuration"""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(levelname)s:%(message)s'
-    )
+    logging.basicConfig(level=level, format='%(levelname)s:%(message)s')
 
 
 def parse_args():
@@ -38,35 +35,21 @@ Examples:
     %(prog)s --verbose                # Enable debug logging
     %(prog)s --list-folders           # List all available IMAP folders
     %(prog)s --test-folder INBOX      # Test specific folder access
-        """
+        """,
     )
     parser.add_argument(
-        '--config', '-c',
-        type=str,
-        default=None,
-        help='Path to configuration YAML file (default: from ConfigManager)'
+        '--config', '-c', type=str, default=None, help='Path to configuration YAML file (default: from ConfigManager)'
     )
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose debug output')
+    parser.add_argument('--list-folders', '-l', action='store_true', help='List all available IMAP folders')
+    parser.add_argument('--test-folder', '-t', type=str, help='Test access to a specific folder (e.g., INBOX, SPAM)')
     parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Enable verbose debug output'
-    )
-    parser.add_argument(
-        '--list-folders', '-l',
-        action='store_true',
-        help='List all available IMAP folders'
-    )
-    parser.add_argument(
-        '--test-folder', '-t',
-        type=str,
-        help='Test access to a specific folder (e.g., INBOX, SPAM)'
-    )
-    parser.add_argument(
-        '--provider', '-p',
+        '--provider',
+        '-p',
         type=str,
         default='gmail',
         choices=['gmail', 'outlook'],
-        help='Email provider to test (default: gmail)'
+        help='Email provider to test (default: gmail)',
     )
     return parser.parse_args()
 
@@ -76,7 +59,7 @@ def list_folders(post: PostOffice) -> None:
     if not hasattr(post.provider, 'imap_conn') or not post.provider.imap_conn:
         print("Error: Not connected. Run with --verbose to see connection issues.")
         return
-    
+
     try:
         status, folders = post.provider.imap_conn.list()
         if status == 'OK':
@@ -96,13 +79,13 @@ def test_folder(post: PostOffice, folder: str) -> None:
     if not hasattr(post.provider, 'imap_conn') or not post.provider.imap_conn:
         print("Error: Not connected. Run with --verbose to see connection issues.")
         return
-    
+
     try:
         status, count = post.provider.imap_conn.select(folder, readonly=True)
         if status == 'OK':
             msg_count = count[0].decode() if count else '0'
             print(f"\nFolder '{folder}': OK - {msg_count} messages")
-            
+
             # Try to search for messages
             status, data = post.provider.imap_conn.search(None, 'ALL')
             if status == 'OK':
@@ -119,7 +102,7 @@ def test_folder(post: PostOffice, folder: str) -> None:
 def main():
     args = parse_args()
     setup_logging(args.verbose)
-    
+
     # Initialize configuration
     try:
         config_manager.initialize(args.config)
@@ -128,25 +111,22 @@ def main():
     except Exception as e:
         print(f"Error loading configuration: {e}")
         sys.exit(1)
-    
+
     # Display config info (redacted)
     print(f"\nEmail: {config.EMAIL_ADDRESS}")
     print(f"Password length: {len(config.PASSWORD)}")
     print(f"IMAP Server: {config.IMAP_URL}:{config.IMAP_PORT}")
     print()
-    
+
     # Create PostOffice instance
-    post = PostOffice(args.provider, {
-        'email': config.EMAIL_ADDRESS,
-        'password': config.PASSWORD
-    })
-    
+    post = PostOffice(args.provider, {'email': config.EMAIL_ADDRESS, 'password': config.PASSWORD})
+
     # Check internal state before connection
     print(f"PostOffice type: {type(post)}")
     print(f"Provider type: {type(post.provider)}")
     print(f"Has imap_conn? {hasattr(post.provider, 'imap_conn')}")
     print()
-    
+
     # Connect
     print("Connecting...")
     try:
@@ -156,24 +136,25 @@ def main():
         print(f"✗ Connection failed: {e}")
         if args.verbose:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
-    
+
     # Show connection state
     print(f"\nAfter connect - imap_conn: {getattr(post.provider, 'imap_conn', 'NOT SET')}")
-    
+
     # List folders if requested
     if args.list_folders:
         list_folders(post)
-    
+
     # Test specific folder if requested
     if args.test_folder:
         test_folder(post, args.test_folder)
-    
+
     # If no specific action, test INBOX
     if not args.list_folders and not args.test_folder:
         test_folder(post, 'INBOX')
-    
+
     # Cleanup
     post.close()
     print("\nConnection closed.")
