@@ -14,3 +14,6 @@ PyYAML
 # Development, Linting & Hooks
 libcst
 pylint
+
+# Custom in house libraries (if any)
+git+ssh://git@CollectiveCore/CollectiveIndustries/CollectiveCore.git
