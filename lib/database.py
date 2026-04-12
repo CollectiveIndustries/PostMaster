@@ -6,7 +6,7 @@ to manage email hashes, classifications, folders, mail queue, and processing log
 import logging
 import threading
 import time
-from typing import Dict, Generator, List, Optional, Set
+from typing import Dict, Generator, List, Optional, Set, Tuple, Union
 
 from CollectiveCore.MariaMod import MariaModule
 
@@ -30,6 +30,23 @@ class EmailDatabase:
                 logging.debug("Re-initialized database connection.")
             except Exception as e:
                 logging.error("Failed to re-initialize database connection: %s", e)
+
+    def _normalize_result(self, result: Union[List[Tuple], List[Dict], None]) -> List[Dict]:
+        """Convert tuple results to dictionaries for consistent access."""
+        if not result:
+            return []
+        
+        normalized = []
+        for row in result:
+            if isinstance(row, dict):
+                normalized.append(row)
+            elif isinstance(row, tuple):
+                # Assume first row contains column names if available
+                # For now, return as-is and let caller handle
+                normalized.append(row)
+            else:
+                normalized.append(row)
+        return normalized
 
     def _safe_execute(self, query: str, params=None, fetch: bool = False, commit: bool = False, retries: int = 3):
         """Thread-safe wrapper for database execution with automatic retry."""
@@ -106,12 +123,26 @@ class EmailDatabase:
     def get_classification(self, x_gm_msgid: str) -> Optional[str]:
         query = "SELECT classification_id FROM email_hashes WHERE x_gm_msgid = %s"
         result = self._safe_execute(query, (x_gm_msgid,), fetch=True)
-        return result[0]["classification_id"] if result else None
+        if result:
+            if isinstance(result[0], dict):
+                return result[0].get("classification_id")
+            else:
+                return result[0][0] if result[0] else None
+        return None
 
     def get_mail_map(self) -> Optional[Dict[str, str]]:
         query = "SELECT classification_id, folder_name FROM classification_folders"
         result = self._safe_execute(query, fetch=True)
-        return {row["classification_id"]: row["folder_name"] for row in result} if result else None
+        if not result:
+            return None
+        
+        mapping = {}
+        for row in result:
+            if isinstance(row, dict):
+                mapping[row.get("classification_id")] = row.get("folder_name")
+            elif isinstance(row, tuple) and len(row) >= 2:
+                mapping[row[0]] = row[1]
+        return mapping if mapping else None
 
     # pylint: disable=too-many-positional-arguments
     def log_email_processing(
@@ -129,7 +160,8 @@ class EmailDatabase:
         try:
             # Avoid duplicate folder
             check_query = "SELECT 1 FROM classification_folders WHERE classification_id=%s AND folder_name=%s"
-            if self._safe_execute(check_query, (classification_id, folder_name), fetch=True):
+            result = self._safe_execute(check_query, (classification_id, folder_name), fetch=True)
+            if result:
                 logging.warning(
                     "Folder '%s' with classification ID '%s' already exists.", folder_name, classification_id
                 )
@@ -159,7 +191,12 @@ class EmailDatabase:
     def is_trained(self, x_gm_msgid: str) -> bool:
         query = "SELECT trained FROM email_hashes WHERE x_gm_msgid = %s"
         result = self._safe_execute(query, (x_gm_msgid,), fetch=True)
-        return result[0]["trained"] if result else False
+        if result:
+            if isinstance(result[0], dict):
+                return bool(result[0].get("trained", False))
+            else:
+                return bool(result[0][0]) if result[0] else False
+        return False
 
     def update_mail_queue(self, thread_marker: str, msg_ids: List[int]) -> bool:
         if not msg_ids:
@@ -189,7 +226,16 @@ class EmailDatabase:
             LIMIT %s
         """
         result = self._safe_execute(query, (thread_marker, batch_size), fetch=True)
-        x_gm_msgids = [row["x_gm_msgid"] for row in result]
+        if not result:
+            return
+        
+        x_gm_msgids = []
+        for row in result:
+            if isinstance(row, dict):
+                x_gm_msgids.append(row.get("x_gm_msgid"))
+            elif isinstance(row, tuple) and len(row) > 0:
+                x_gm_msgids.append(row[0])
+        
         if x_gm_msgids:
             # Mark these as being processed to avoid re-fetching
             update_query = f"""
@@ -203,7 +249,15 @@ class EmailDatabase:
     def fetch_thread_marker_count(self, thread_marker: str) -> int:
         query = "SELECT COUNT(*) AS total_count FROM mail_que WHERE thread_marker=%s AND processed = 0"
         result = self._safe_execute(query, (thread_marker,), fetch=True)
-        return result[0]["total_count"] if result else 0
+        if not result:
+            return 0
+        
+        if result and result[0]:
+            if isinstance(result[0], dict):
+                return result[0].get("total_count", 0)
+            else:
+                return result[0][0] if result[0] else 0
+        return 0
 
     def pop_from_que(self, msgid: int, thread_marker: str) -> bool:
         query = "DELETE FROM mail_que WHERE x_gm_msgid=%s AND thread_marker=%s"
@@ -223,7 +277,16 @@ class EmailDatabase:
             WHERE thread_marker = %s AND processed = 1
         """
         result = self._safe_execute(query, (thread_marker,), fetch=True)
-        return {row["x_gm_msgid"] for row in result} if result else set()
+        if not result:
+            return set()
+        
+        processed_ids = set()
+        for row in result:
+            if isinstance(row, dict):
+                processed_ids.add(row.get("x_gm_msgid"))
+            elif isinstance(row, tuple) and len(row) > 0:
+                processed_ids.add(row[0])
+        return processed_ids
 
     def mark_as_processed(self, x_gm_msgid: int, thread_marker: str) -> bool:
         """Mark an email as processed in the queue"""

@@ -197,12 +197,20 @@ class TrainerThread(ThreadBase):
                 start_time = time.time()
                 total_to_process = total - len(processed_ids)
 
+                if total_to_process <= 0:
+                    logging.info("No new emails to process. All %s emails already processed.", total)
+                    self.ThreadSleep()
+                    interruptible_sleep(self.SleepTime, self.stop_event)
+                    continue
+
                 for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
                     # Filter out already processed emails
                     filtered_batch = [msgid for msgid in batch if msgid not in processed_ids]
                     if filtered_batch:
                         self.email_db.update_mail_queue(self.name, filtered_batch)
-                        log_progress(len(filtered_batch) + index, total_to_process, start_time, stage="Fetching X-GM-MSGIDs")
+                        # Cap progress at 100% for display
+                        progress_pct = min(100, int((len(filtered_batch) + index) * 100 / total_to_process))
+                        log_progress(progress_pct, 100, start_time, stage="Fetching X-GM-MSGIDs")
                         index += len(filtered_batch)
                     else:
                         logging.debug("Skipping batch - all emails already processed")
@@ -230,11 +238,11 @@ class TrainerThread(ThreadBase):
         self.ThreadSleep()
 
     def _ProcessesBatches_(self, total_count) -> None:
-        for start, _end_ in split_batches(total_count, self.batch_size):
+        for start, end in split_batches(total_count, self.batch_size):
             if self.stop_event.is_set():
                 break
 
-            logging.info("Processing batch %s to %s out of %s.", start + 1, _end_, total_count)
+            logging.info("Processing batch %s to %s out of %s.", start + 1, end, total_count)
 
             email_batch = []
             x_gm_msgids = list(self.email_db.fetch_mail_from_queue(self.name, self.batch_size))
@@ -253,7 +261,8 @@ class TrainerThread(ThreadBase):
                 email_batch.append(msg)
 
                 if index % 100 == 0:
-                    log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Fetching emails")
+                    progress_pct = min(100, int(len(email_batch) * 100 / len(x_gm_msgids)))
+                    log_progress(progress_pct, 100, start_time, stage="Fetching emails")
                 index += 1
 
                 if len(email_batch) >= self.batch_size:
@@ -265,7 +274,7 @@ class TrainerThread(ThreadBase):
                 logging.info("Processing the final batch of %s emails.", len(email_batch))
                 self.process_batch(email_batch)
 
-            log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Training emails")
+            log_progress(100, 100, start_time, stage="Training emails")
 
     def process_batch(self, email_batch: list[Email]) -> None:
         logging.info("Starting model training for %s emails.", len(email_batch))
@@ -310,7 +319,8 @@ class TrainerThread(ThreadBase):
                 trained_msg_ids.append(msg.msgid)
 
                 if index % 100 == 0:
-                    log_progress(len(trained_msg_ids), len(email_batch), start_time, stage="sql update")
+                    progress_pct = min(100, int(len(trained_msg_ids) * 100 / len(email_batch)))
+                    log_progress(progress_pct, 100, start_time, stage="sql update")
                 index += 1
 
             except Exception as e:
@@ -392,7 +402,8 @@ class ClassificationThread(ThreadBase):
         start_time = time.time()
         for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
             self.email_db.update_mail_queue(self.name, batch)
-            log_progress(len(batch) + index, total, start_time, stage="Fetching X-GM-MSGIDs")
+            progress_pct = min(100, int((len(batch) + index) * 100 / total)) if total > 0 else 0
+            log_progress(progress_pct, 100, start_time, stage="Fetching X-GM-MSGIDs")
             x_gm_msgids.extend(batch)
             index += len(batch)
 
@@ -424,7 +435,8 @@ class ClassificationThread(ThreadBase):
 
             # Periodic progress logging
             if index % 100 == 0:
-                log_progress(len(email_batch), len(x_gm_msgids), start_time, stage="Fetching emails")
+                progress_pct = min(100, int(len(email_batch) * 100 / len(x_gm_msgids))) if x_gm_msgids else 0
+                log_progress(progress_pct, 100, start_time, stage="Fetching emails")
             index += 1
 
         # Once all emails are collected, classify them
@@ -480,7 +492,7 @@ class LogRotation(threading.Thread):
         self.backup_count = config.BACKUP_COUNT
         self.check_interval = config.CHECK_INTERVAL
         self.stop_event = stop_event
-        logging.info("Log rotation thread intilized.")
+        logging.info("Log rotation thread initialized.")
 
     def run(self):
         log_file = config.LOG_FILE

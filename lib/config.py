@@ -1,5 +1,6 @@
 """Configuration wrapper that uses the lazy ConfigManager."""
 
+import logging
 from typing import Optional
 from .config_manager import config_manager
 
@@ -14,6 +15,7 @@ class Conf:
         # Store path for later initialization (but don't load yet)
         self._pending_path = config_path
         self._initialized = False
+        self._show_config = False  # Set to True to print config on load
     
     def _ensure_initialized(self):
         """Load config if not already loaded."""
@@ -27,7 +29,7 @@ class Conf:
         # Connection settings (from ConnectionSettings section)
         conn_settings = config_manager.get_section('ConnectionSettings')
         self.EMAIL_ADDRESS = conn_settings.get('email_address', '')
-        self.PASSWORD = conn_settings.get('password', '').replace(' ', '')  # Remove spaces from app password
+        self.PASSWORD = conn_settings.get('password', '').replace(' ', '')
         self.IMAP_URL = conn_settings.get('url', 'imap.gmail.com')
         self.IMAP_PORT = conn_settings.get('port', 993)
         
@@ -41,11 +43,26 @@ class Conf:
         self.SPAM_LEARN = folders.get('spam_learn', 'SPAM_LEARN')
         self.HAM_LEARN = folders.get('ham_learn', 'HAM_LEARN')
         
-        # Daemon settings
+        # Daemon settings - WITH DEBUG
         daemon = config_manager.get_section('DaemonSettings')
-        self.TRAINING_DATA_PATH = daemon.get('data_path', '/var/lib/spamvanquisher/data')
-        self.SCAN_TIME = daemon.get('scan_time', 300)
-        self.BATCH_SIZE = daemon.get('batch_size', 100)
+        import logging as log
+        log.info(f"DEBUG in _load_attributes: DaemonSettings = {daemon}")
+        
+        if daemon:
+            self.TRAINING_DATA_PATH = daemon.get('data_path')
+            log.info(f"DEBUG: data_path from daemon = {self.TRAINING_DATA_PATH}")
+            if not self.TRAINING_DATA_PATH:
+                log.warning("data_path not found in DaemonSettings, using default")
+                self.TRAINING_DATA_PATH = '/opt/spamvanquisher/data'
+            self.SCAN_TIME = daemon.get('scan_time', 300)
+            self.BATCH_SIZE = daemon.get('batch_size', 100)
+        else:
+            log.warning("DaemonSettings section not found, using defaults")
+            self.TRAINING_DATA_PATH = '/opt/spamvanquisher/data'
+            self.SCAN_TIME = 300
+            self.BATCH_SIZE = 100
+        
+        log.info(f"DEBUG: Final TRAINING_DATA_PATH = {self.TRAINING_DATA_PATH}")
         
         # Email parts for training
         email_parts = config_manager.get_section('EmailParts')
@@ -77,6 +94,23 @@ class Conf:
         self.BACKUP_COUNT = logging_cfg.get('backup_count', 4)
         self.CHECK_INTERVAL = logging_cfg.get('CheckInterval', 300)
         self.MAX_SIZE = self._parse_size(logging_cfg.get('LogSize', '2g'))
+        
+        # Print config if enabled (with password masking)
+        if self._show_config:
+            self._print_config()
+    
+    def _print_config(self):
+        """Print configuration with passwords masked"""
+        logging.info("🔧 Loaded Configuration:")
+        logging.info(f"  EMAIL_ADDRESS: {self.EMAIL_ADDRESS}")
+        logging.info(f"  PASSWORD: {'*' * len(self.PASSWORD) if self.PASSWORD else 'NOT SET'}")
+        logging.info(f"  IMAP_URL: {self.IMAP_URL}")
+        logging.info(f"  IMAP_PORT: {self.IMAP_PORT}")
+        logging.info(f"  SPAM_LEARN: {self.SPAM_LEARN}")
+        logging.info(f"  HAM_LEARN: {self.HAM_LEARN}")
+        logging.info(f"  TRAINING_DATA_PATH: {self.TRAINING_DATA_PATH}")
+        logging.info(f"  SCAN_TIME: {self.SCAN_TIME}")
+        logging.info(f"  BATCH_SIZE: {self.BATCH_SIZE}")
     
     def _parse_size(self, size_str: str) -> int:
         """Convert human-readable size string to bytes."""
