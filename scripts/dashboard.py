@@ -85,15 +85,32 @@ class Dashboard:
         except Exception as e:
             return [('ERROR', str(e))]
     
-    def get_queue_count(self) -> int:
-        """Get number of emails in processing queue"""
-        result = self.run_query("SELECT COUNT(*) FROM mail_que;")
-        if result and result[0]:
-            return int(result[0][0])
-        return 0
+    def get_queue_stats(self) -> Dict:
+        """Get detailed queue statistics using new processed column"""
+        # Get pending emails (processed = 0)
+        pending = self.run_query(
+            "SELECT COUNT(*) FROM mail_que WHERE processed = 0;"
+        )
+        pending_count = int(pending[0][0]) if pending and pending[0] else 0
+        
+        # Get completed emails (processed = 1)
+        completed = self.run_query(
+            "SELECT COUNT(*) FROM mail_que WHERE processed = 1;"
+        )
+        completed_count = int(completed[0][0]) if completed and completed[0] else 0
+        
+        # Get total
+        total = self.run_query("SELECT COUNT(*) FROM mail_que;")
+        total_count = int(total[0][0]) if total and total[0] else 0
+        
+        return {
+            'pending': pending_count,
+            'completed': completed_count,
+            'total': total_count
+        }
     
     def get_processed_count(self) -> int:
-        """Get number of processed emails"""
+        """Get number of processed emails from log"""
         result = self.run_query("SELECT COUNT(*) FROM email_processing_log;")
         if result and result[0]:
             return int(result[0][0])
@@ -111,17 +128,51 @@ class Dashboard:
                 distribution[row[0]] = int(row[1])
         return distribution
     
-    def get_training_counts(self) -> Tuple[int, int]:
-        """Get count of spam and ham training emails"""
-        spam = self.run_query(
-            "SELECT COUNT(*) FROM mail_que WHERE thread_marker = 'Trainer-Spam';"
+    def get_training_counts(self) -> Tuple[int, int, int, int]:
+        """Get count of training emails (both pending and completed)"""
+        # Get pending training emails (in queue, not processed)
+        spam_pending = self.run_query(
+            "SELECT COUNT(*) FROM mail_que WHERE thread_marker = 'Trainer-Spam' AND processed = 0;"
         )
-        ham = self.run_query(
-            "SELECT COUNT(*) FROM mail_que WHERE thread_marker = 'Trainer-Ham';"
+        ham_pending = self.run_query(
+            "SELECT COUNT(*) FROM mail_que WHERE thread_marker = 'Trainer-Ham' AND processed = 0;"
         )
-        spam_count = int(spam[0][0]) if spam and spam[0] else 0
-        ham_count = int(ham[0][0]) if ham and ham[0] else 0
-        return spam_count, ham_count
+        
+        # Get completed training emails (already trained)
+        spam_completed = self.run_query(
+            "SELECT COUNT(*) FROM mail_que WHERE thread_marker = 'Trainer-Spam' AND processed = 1;"
+        )
+        ham_completed = self.run_query(
+            "SELECT COUNT(*) FROM mail_que WHERE thread_marker = 'Trainer-Ham' AND processed = 1;"
+        )
+        
+        spam_pending_count = int(spam_pending[0][0]) if spam_pending and spam_pending[0] else 0
+        ham_pending_count = int(ham_pending[0][0]) if ham_pending and ham_pending[0] else 0
+        spam_completed_count = int(spam_completed[0][0]) if spam_completed and spam_completed[0] else 0
+        ham_completed_count = int(ham_completed[0][0]) if ham_completed and ham_completed[0] else 0
+        
+        return spam_pending_count, ham_pending_count, spam_completed_count, ham_completed_count
+    
+    def get_trained_model_stats(self) -> Dict:
+        """Get statistics about trained emails from email_hashes"""
+        trained = self.run_query(
+            "SELECT COUNT(*) FROM email_hashes WHERE trained = 1;"
+        )
+        total_trained = int(trained[0][0]) if trained and trained[0] else 0
+        
+        # Get classification distribution of trained emails
+        dist = self.run_query(
+            "SELECT classification_id, COUNT(*) FROM email_hashes WHERE trained = 1 GROUP BY classification_id;"
+        )
+        trained_by_class = {}
+        for row in dist:
+            if len(row) >= 2:
+                trained_by_class[row[0]] = int(row[1])
+        
+        return {
+            'total_trained': total_trained,
+            'by_class': trained_by_class
+        }
     
     def draw_bar(self, percent: int, width: int, color: str) -> str:
         """Draw a progress bar"""
@@ -144,13 +195,16 @@ class Dashboard:
     def display(self):
         """Display a single dashboard update"""
         # Get all metrics
-        queued = self.get_queue_count()
+        queue_stats = self.get_queue_stats()
         processed = self.get_processed_count()
         folder_dist = self.get_folder_distribution()
-        spam_train, ham_train = self.get_training_counts()
+        spam_pending, ham_pending, spam_completed, ham_completed = self.get_training_counts()
+        trained_stats = self.get_trained_model_stats()
         
-        # Calculate total
-        total = queued + processed
+        # Calculate totals
+        total_queued = queue_stats['total']
+        pending = queue_stats['pending']
+        completed_queue = queue_stats['completed']
         
         # Header
         print(f"{Colors.BOLD}{Colors.WHITE}╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
@@ -158,39 +212,56 @@ class Dashboard:
         print(f"{Colors.BOLD}{Colors.WHITE}╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
         
-        # Panel 1: Overview
+        # Panel 1: Queue Overview (updated with processed column)
         print(f"{Colors.BOLD}{Colors.BLUE}┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐{Colors.NC}")
-        print(f"{Colors.BOLD}{Colors.BLUE}│{Colors.WHITE} 📊 OVERVIEW{Colors.BLUE}                                                                                                                   │{Colors.NC}")
+        print(f"{Colors.BOLD}{Colors.BLUE}│{Colors.WHITE} 📊 QUEUE STATUS{Colors.BLUE}                                                                                                                │{Colors.NC}")
         print(f"{Colors.BOLD}{Colors.BLUE}├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤{Colors.NC}")
         
-        if total > 0:
-            queue_percent = int(queued * 100 / total)
-            processed_percent = int(processed * 100 / total)
-            print(f"{Colors.BLUE}│{Colors.NC}  📨 {Colors.WHITE}Total Emails:{Colors.NC} {self.format_number(total):>10}")
-            print(f"{Colors.BLUE}│{Colors.NC}     {self.draw_bar(processed_percent, 50, Colors.GREEN)} {processed_percent}% Processed ({self.format_number(processed)})")
-            print(f"{Colors.BLUE}│{Colors.NC}     {self.draw_bar(queue_percent, 50, Colors.YELLOW)} {queue_percent}% Queued ({self.format_number(queued)})")
+        if total_queued > 0:
+            pending_percent = int(pending * 100 / total_queued) if total_queued > 0 else 0
+            completed_percent = int(completed_queue * 100 / total_queued) if total_queued > 0 else 0
+            print(f"{Colors.BLUE}│{Colors.NC}  📨 {Colors.WHITE}Total Emails in Queue:{Colors.NC} {self.format_number(total_queued):>10}")
+            print(f"{Colors.BLUE}│{Colors.NC}     {self.draw_bar(completed_percent, 50, Colors.GREEN)} {completed_percent}% Completed ({self.format_number(completed_queue)})")
+            print(f"{Colors.BLUE}│{Colors.NC}     {self.draw_bar(pending_percent, 50, Colors.YELLOW)} {pending_percent}% Pending ({self.format_number(pending)})")
         else:
-            print(f"{Colors.BLUE}│{Colors.NC}  📨 {Colors.WHITE}Total Emails:{Colors.NC} {self.format_number(total):>10}")
-            print(f"{Colors.BLUE}│{Colors.NC}     {Colors.GRAY}No data yet{Colors.NC}")
+            print(f"{Colors.BLUE}│{Colors.NC}  📨 {Colors.WHITE}Queue:{Colors.NC} Empty - No emails to process")
         
         print(f"{Colors.BOLD}{Colors.BLUE}└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘{Colors.NC}")
         print()
         
-        # Panel 2: Training Status
+        # Panel 2: Training Status (updated with pending vs completed)
         print(f"{Colors.BOLD}{Colors.MAGENTA}┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐{Colors.NC}")
         print(f"{Colors.BOLD}{Colors.MAGENTA}│{Colors.WHITE} 🧠 TRAINING STATUS{Colors.MAGENTA}                                                                                                           │{Colors.NC}")
         print(f"{Colors.BOLD}{Colors.MAGENTA}├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤{Colors.NC}")
-        print(f"{Colors.MAGENTA}│{Colors.NC}  🚫 {Colors.WHITE}Spam Training:{Colors.NC} {self.format_number(spam_train):>10} emails")
-        print(f"{Colors.MAGENTA}│{Colors.NC}  ✅ {Colors.WHITE}Ham Training:{Colors.NC}  {self.format_number(ham_train):>10} emails")
+        print(f"{Colors.MAGENTA}│{Colors.NC}  🚫 {Colors.WHITE}Spam Training:{Colors.NC}")
+        print(f"{Colors.MAGENTA}│{Colors.NC}     Pending:  {self.format_number(spam_pending):>10} emails")
+        print(f"{Colors.MAGENTA}│{Colors.NC}     Trained:  {self.format_number(spam_completed):>10} emails")
+        print(f"{Colors.MAGENTA}│{Colors.NC}  ✅ {Colors.WHITE}Ham Training:{Colors.NC}")
+        print(f"{Colors.MAGENTA}│{Colors.NC}     Pending:  {self.format_number(ham_pending):>10} emails")
+        print(f"{Colors.MAGENTA}│{Colors.NC}     Trained:  {self.format_number(ham_completed):>10} emails")
         
-        total_train = spam_train + ham_train
-        if total_train > 0:
-            train_percent = min(100, int(total_train * 100 / 500))
-            print(f"{Colors.MAGENTA}│{Colors.NC}     {self.draw_bar(train_percent, 50, Colors.CYAN)} {train_percent}% of target (500 emails)")
+        total_train_completed = spam_completed + ham_completed
+        if total_train_completed > 0:
+            print(f"{Colors.MAGENTA}│{Colors.NC}  📊 {Colors.WHITE}Total Trained:{Colors.NC} {self.format_number(total_train_completed)} emails")
+        
         print(f"{Colors.BOLD}{Colors.MAGENTA}└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘{Colors.NC}")
         print()
         
-        # Panel 3: Folder Distribution
+        # Panel 3: Model Statistics (new panel)
+        print(f"{Colors.BOLD}{Colors.CYAN}┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐{Colors.NC}")
+        print(f"{Colors.BOLD}{Colors.CYAN}│{Colors.WHITE} 🤖 MODEL STATISTICS{Colors.CYAN}                                                                                                             │{Colors.NC}")
+        print(f"{Colors.BOLD}{Colors.CYAN}├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤{Colors.NC}")
+        print(f"{Colors.CYAN}│{Colors.NC}  🎓 {Colors.WHITE}Emails in Training Set:{Colors.NC} {self.format_number(trained_stats['total_trained']):>10}")
+        
+        if trained_stats['by_class']:
+            spam_trained = trained_stats['by_class'].get('0', 0)
+            ham_trained = trained_stats['by_class'].get('1', 0)
+            print(f"{Colors.CYAN}│{Colors.NC}     Spam: {self.format_number(spam_trained):>10}")
+            print(f"{Colors.CYAN}│{Colors.NC}     Ham:  {self.format_number(ham_trained):>10}")
+        print(f"{Colors.BOLD}{Colors.CYAN}└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘{Colors.NC}")
+        print()
+        
+        # Panel 4: Folder Distribution
         print(f"{Colors.BOLD}{Colors.GREEN}┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐{Colors.NC}")
         print(f"{Colors.BOLD}{Colors.GREEN}│{Colors.WHITE} 📁 FOLDER DISTRIBUTION{Colors.GREEN}                                                                                                         │{Colors.NC}")
         print(f"{Colors.BOLD}{Colors.GREEN}├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤{Colors.NC}")
@@ -208,31 +279,48 @@ class Dashboard:
         print(f"{Colors.BOLD}{Colors.GREEN}└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘{Colors.NC}")
         print()
         
-        # Panel 4: System Health
+        # Panel 5: System Health
         print(f"{Colors.BOLD}{Colors.YELLOW}┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐{Colors.NC}")
         print(f"{Colors.BOLD}{Colors.YELLOW}│{Colors.WHITE} 💚 SYSTEM HEALTH{Colors.YELLOW}                                                                                                               │{Colors.NC}")
         print(f"{Colors.BOLD}{Colors.YELLOW}├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤{Colors.NC}")
         
+        # Check database connection
         test_query = self.run_query("SELECT 1")
         if test_query and test_query[0] and test_query[0][0] == '1':
-            print(f"{Colors.YELLOW}│{Colors.NC}  🗄️  Database:     {Colors.GREEN}Connected ✓{Colors.NC}")
+            print(f"{Colors.YELLOW}│{Colors.NC}  🗄️  Database:        {Colors.GREEN}Connected ✓{Colors.NC}")
         else:
-            print(f"{Colors.YELLOW}│{Colors.NC}  🗄️  Database:     {Colors.RED}Disconnected ✗{Colors.NC}")
+            print(f"{Colors.YELLOW}│{Colors.NC}  🗄️  Database:        {Colors.RED}Disconnected ✗{Colors.NC}")
         
-        mail_que_exists = self.run_query("SHOW TABLES LIKE 'mail_que'")
-        if mail_que_exists:
-            print(f"{Colors.YELLOW}│{Colors.NC}  📋 mail_que:     {Colors.GREEN}Active ✓{Colors.NC}")
+        # Check mail_que table structure (check for processed column)
+        has_processed = self.run_query("SHOW COLUMNS FROM mail_que LIKE 'processed'")
+        if has_processed:
+            print(f"{Colors.YELLOW}│{Colors.NC}  📋 mail_que:       {Colors.GREEN}Active (with processed tracking) ✓{Colors.NC}")
         else:
-            print(f"{Colors.YELLOW}│{Colors.NC}  📋 mail_que:     {Colors.RED}Missing ✗{Colors.NC}")
+            print(f"{Colors.YELLOW}│{Colors.NC}  📋 mail_que:       {Colors.YELLOW}Active (legacy schema) ⚠{Colors.NC}")
         
+        # Check processing log
         log_exists = self.run_query("SHOW TABLES LIKE 'email_processing_log'")
         if log_exists:
-            print(f"{Colors.YELLOW}│{Colors.NC}  📝 Processing Log: {Colors.GREEN}Active ✓{Colors.NC}")
+            log_count = self.run_query("SELECT COUNT(*) FROM email_processing_log")
+            log_count_value = int(log_count[0][0]) if log_count and log_count[0] else 0
+            print(f"{Colors.YELLOW}│{Colors.NC}  📝 Processing Log:  {Colors.GREEN}Active ({self.format_number(log_count_value)} records) ✓{Colors.NC}")
         else:
-            print(f"{Colors.YELLOW}│{Colors.NC}  📝 Processing Log: {Colors.RED}Missing ✗{Colors.NC}")
+            print(f"{Colors.YELLOW}│{Colors.NC}  📝 Processing Log:  {Colors.RED}Missing ✗{Colors.NC}")
+        
+        # Check email_hashes table for trained column
+        has_trained = self.run_query("SHOW COLUMNS FROM email_hashes LIKE 'trained'")
+        if has_trained:
+            trained_count = self.run_query("SELECT COUNT(*) FROM email_hashes WHERE trained = 1")
+            trained_value = int(trained_count[0][0]) if trained_count and trained_count[0] else 0
+            print(f"{Colors.YELLOW}│{Colors.NC}  🏷️  email_hashes:   {Colors.GREEN}Active ({self.format_number(trained_value)} trained) ✓{Colors.NC}")
+        else:
+            print(f"{Colors.YELLOW}│{Colors.NC}  🏷️  email_hashes:   {Colors.YELLOW}Active (legacy schema) ⚠{Colors.NC}")
         
         print(f"{Colors.BOLD}{Colors.YELLOW}└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘{Colors.NC}")
         print()
+        
+        # Footer with instructions
+        print(f"{Colors.GRAY}Press Ctrl+C to exit dashboard | Updates every {self.interval} seconds{Colors.NC}")
     
     def run(self, once: bool = False):
         """Run the dashboard"""
@@ -244,7 +332,6 @@ class Dashboard:
                 while True:
                     self.clear_screen()
                     self.display()
-                    print(f"{Colors.GRAY}Press Ctrl+C to exit dashboard | Updates every {self.interval} seconds{Colors.NC}")
                     time.sleep(self.interval)
             except KeyboardInterrupt:
                 print(f"\n{Colors.YELLOW}Dashboard stopped.{Colors.NC}")

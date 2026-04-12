@@ -186,18 +186,26 @@ class TrainerThread(ThreadBase):
                 if total == 0:
                     logging.info("No emails to process in '%s'. Sleeping until the next cycle.", self.src)
                     self.ThreadSleep()
-                    interruptible_sleep(self.SleepTime, self.stop_event)  # Allow interruptible sleep
-                    continue  # Skip the rest of the loop and start the next cycle
+                    interruptible_sleep(self.SleepTime, self.stop_event)
+                    continue
+
+                # CRITICAL FIX: Get already processed emails
+                processed_ids = self.email_db.get_processed_x_gm_msgids(self.name)
 
                 logging.info("Fetching email message IDs from '%s'.", self.src)
                 index = 0
                 start_time = time.time()
+                total_to_process = total - len(processed_ids)
 
                 for batch in self.post_office.fetch_X_GM_MSGID(self.batch_size):
-                    logging.debug("Fetched batch of %s X-GM-MSGIDs", len(batch))
-                    self.email_db.update_mail_queue(self.name, batch)
-                    log_progress(len(batch) + index, total, start_time, stage="Fetching X-GM-MSGIDs")
-                    index += len(batch)
+                    # Filter out already processed emails
+                    filtered_batch = [msgid for msgid in batch if msgid not in processed_ids]
+                    if filtered_batch:
+                        self.email_db.update_mail_queue(self.name, filtered_batch)
+                        log_progress(len(filtered_batch) + index, total_to_process, start_time, stage="Fetching X-GM-MSGIDs")
+                        index += len(filtered_batch)
+                    else:
+                        logging.debug("Skipping batch - all emails already processed")
 
                 # Check if there are emails to process
                 total_count = self.email_db.fetch_thread_marker_count(self.name)
@@ -208,6 +216,8 @@ class TrainerThread(ThreadBase):
                     self.mail_net.load_model()
                     self._ProcessesBatches_(total_count)
                     logging.info("Training completed. Waiting for next cycle.")
+                else:
+                    logging.info("No new emails to train. All %s emails already processed.", total)
 
                 self.ThreadSleep()
                 interruptible_sleep(self.SleepTime, self.stop_event)
@@ -227,7 +237,7 @@ class TrainerThread(ThreadBase):
             logging.info("Processing batch %s to %s out of %s.", start + 1, _end_, total_count)
 
             email_batch = []
-            x_gm_msgids = list(self.email_db.fetch_mail_from_queue(self.name, total_count))
+            x_gm_msgids = list(self.email_db.fetch_mail_from_queue(self.name, self.batch_size))
 
             if not x_gm_msgids:
                 logging.debug("No more emails in the queue to process.")
@@ -277,9 +287,9 @@ class TrainerThread(ThreadBase):
         except Exception as e:
             logging.error("Error during model training: %s", e, exc_info=True)
 
-        # Move emails and update database
+        # Move emails to trained folder and update database
         trained_msg_ids = []
-        logging.info("Moving processed emails to '%s' and updating the database.", self.dst)
+        logging.info("Moving processed emails to trained folder: '%s'", self.dst)
         start_time = time.time()
         index = 0
         uid_lst = []
@@ -289,10 +299,13 @@ class TrainerThread(ThreadBase):
                 self.email_db.add_email_hash(msg.hash, msg.msgid, self.class_id)
                 self.email_db.log_email_processing(msg.msgid, msg.hash, self.src, self.dst, "trained")
                 self.email_db.set_trained_flag([msg.msgid])
+                
+                # Mark as processed in queue
+                self.email_db.mark_as_processed(msg.msgid, self.name)
                 success = self.email_db.pop_from_que(msg.msgid, self.name)
 
                 if not success:
-                    logging.error("Failed to pop email with X-GM-MSGID '%s' from queue.", msg.msgid)
+                    logging.warning("Failed to pop email with X-GM-MSGID '%s' from queue.", msg.msgid)
 
                 trained_msg_ids.append(msg.msgid)
 
@@ -303,7 +316,10 @@ class TrainerThread(ThreadBase):
             except Exception as e:
                 logging.error("Failed to process email with X-GM-MSGID '%s': %s", msg.msgid, e, exc_info=True)
 
-        self.post_office.move(uids=uid_lst, destination_folder=self.dst)
+        # Move emails to destination folder (trained folder)
+        if uid_lst:
+            self.post_office.move(uids=uid_lst, destination_folder=self.dst)
+            logging.info("Moved %d emails to %s", len(uid_lst), self.dst)
 
         if trained_msg_ids:
             logging.info("Successfully processed %s emails in this batch.", len(trained_msg_ids))
@@ -449,6 +465,8 @@ class ClassificationThread(ThreadBase):
                     destination_folder=folder_name,
                     status="Processed",
                 )
+                # Mark as processed in queue
+                self.email_db.mark_as_processed(email.msgid, self.name)
 
 
 class LogRotation(threading.Thread):

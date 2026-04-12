@@ -6,7 +6,7 @@ to manage email hashes, classifications, folders, mail queue, and processing log
 import logging
 import threading
 import time
-from typing import Dict, Generator, List, Optional
+from typing import Dict, Generator, List, Optional, Set
 
 from CollectiveCore.MariaMod import MariaModule
 
@@ -31,28 +31,39 @@ class EmailDatabase:
             except Exception as e:
                 logging.error("Failed to re-initialize database connection: %s", e)
 
-    def _safe_execute(self, query: str, params=None, fetch: bool = False, commit: bool = False):
-        """Thread-safe wrapper for database execution with debug logging."""
+    def _safe_execute(self, query: str, params=None, fetch: bool = False, commit: bool = False, retries: int = 3):
+        """Thread-safe wrapper for database execution with automatic retry."""
         self._ensure_connection()
         with self._db_lock:
-            try:
-                logging.debug("DB Query: %s | Params: %s", query.strip().replace('\n', ' '), params)
-                result = self.db.execute(query, params, fetch=fetch, commit=commit)
-                if fetch and result:
-                    logging.debug("DB Fetch Result: %s rows", len(result))
-                return result
-            except Exception as e:
-                err_str = str(e)
-                logging.error("MariaDB execute error: %s | Query: %s | Params: %s", e, query.strip(), params)
-                # Attempt to reconnect on known connection errors
-                if any(kw in err_str for kw in ["Lost connection", "Commands out of sync", "NoneType", "closed"]):
-                    try:
-                        self.db = MariaModule()
-                        self._closed = False
-                        logging.debug("Attempted DB reconnection after error.")
-                    except Exception as re_err:
-                        logging.error("DB reconnection failed: %s", re_err)
-                raise
+            for attempt in range(retries):
+                try:
+                    logging.debug("DB Query: %s | Params: %s", query.strip().replace('\n', ' '), params)
+                    result = self.db.execute(query, params, fetch=fetch, commit=commit)
+                    if fetch and result:
+                        logging.debug("DB Fetch Result: %s rows", len(result))
+                    return result
+                except Exception as e:
+                    err_str = str(e)
+                    logging.warning("DB error (attempt %d/%d): %s", attempt + 1, retries, err_str)
+
+                    # Attempt to reconnect on known connection errors
+                    reconnect_keywords = [
+                        "Lost connection", "Commands out of sync", "NoneType", 
+                        "closed", "packets out of order", "Server has gone away",
+                        "Connection refused", "Can't connect"
+                    ]
+                    if any(kw in err_str for kw in reconnect_keywords):
+                        try:
+                            # Force new connection
+                            self.db = MariaModule()
+                            self._closed = False
+                            logging.debug("Reconnected database after error.")
+                            time.sleep(1)  # Brief pause before retry
+                            continue
+                        except Exception as re_err:
+                            logging.error("DB reconnection failed: %s", re_err)
+                    raise
+            raise
 
     def close(self) -> None:
         """Safely close the database connection if supported by the underlying module."""
@@ -174,22 +185,23 @@ class EmailDatabase:
         query = """
             SELECT x_gm_msgid
             FROM mail_que
-            WHERE thread_marker=%s AND processed != -1
+            WHERE thread_marker=%s AND processed = 0
             LIMIT %s
         """
         result = self._safe_execute(query, (thread_marker, batch_size), fetch=True)
         x_gm_msgids = [row["x_gm_msgid"] for row in result]
         if x_gm_msgids:
+            # Mark these as being processed to avoid re-fetching
             update_query = f"""
                 UPDATE mail_que
-                SET thread_marker=%s
-                WHERE x_gm_msgid IN ({','.join(['%s']*len(x_gm_msgids))}) AND processed != -1
+                SET processed = 1
+                WHERE x_gm_msgid IN ({','.join(['%s']*len(x_gm_msgids))}) AND thread_marker=%s
             """
-            self._safe_execute(update_query, (thread_marker, *x_gm_msgids), commit=True)
+            self._safe_execute(update_query, (*x_gm_msgids, thread_marker), commit=True)
             yield from x_gm_msgids
 
     def fetch_thread_marker_count(self, thread_marker: str) -> int:
-        query = "SELECT COUNT(*) AS total_count FROM mail_que WHERE thread_marker=%s"
+        query = "SELECT COUNT(*) AS total_count FROM mail_que WHERE thread_marker=%s AND processed = 0"
         result = self._safe_execute(query, (thread_marker,), fetch=True)
         return result[0]["total_count"] if result else 0
 
@@ -202,37 +214,28 @@ class EmailDatabase:
         except Exception as e:
             logging.error("Error popping from queue: %s", e)
             return False
-# Add this method to EmailDatabase class
-    def _safe_execute(self, query: str, params=None, fetch: bool = False, commit: bool = False, retries: int = 3):
-        """Thread-safe wrapper for database execution with automatic retry."""
-        self._ensure_connection()
-        with self._db_lock:
-            for attempt in range(retries):
-                try:
-                    logging.debug("DB Query: %s | Params: %s", query.strip().replace('\n', ' '), params)
-                    result = self.db.execute(query, params, fetch=fetch, commit=commit)
-                    if fetch and result:
-                        logging.debug("DB Fetch Result: %s rows", len(result))
-                    return result
-                except Exception as e:
-                    err_str = str(e)
-                    logging.warning("DB error (attempt %d/%d): %s", attempt + 1, retries, err_str)
 
-                    # Attempt to reconnect on known connection errors
-                    reconnect_keywords = [
-                        "Lost connection", "Commands out of sync", "NoneType", 
-                        "closed", "packets out of order", "Server has gone away",
-                        "Connection refused", "Can't connect"
-                    ]
-                    if any(kw in err_str for kw in reconnect_keywords):
-                        try:
-                            # Force new connection
-                            self.db = MariaModule()
-                            self._closed = False
-                            logging.debug("Reconnected database after error.")
-                            time.sleep(1)  # Brief pause before retry
-                            continue
-                        except Exception as re_err:
-                            logging.error("DB reconnection failed: %s", re_err)
-                    raise
-            raise
+    def get_processed_x_gm_msgids(self, thread_marker: str) -> Set[int]:
+        """Get set of X-GM-MSGIDs that have already been processed by this thread"""
+        query = """
+            SELECT x_gm_msgid 
+            FROM mail_que 
+            WHERE thread_marker = %s AND processed = 1
+        """
+        result = self._safe_execute(query, (thread_marker,), fetch=True)
+        return {row["x_gm_msgid"] for row in result} if result else set()
+
+    def mark_as_processed(self, x_gm_msgid: int, thread_marker: str) -> bool:
+        """Mark an email as processed in the queue"""
+        query = """
+            UPDATE mail_que 
+            SET processed = 1, processed_at = CURRENT_TIMESTAMP 
+            WHERE x_gm_msgid = %s AND thread_marker = %s
+        """
+        try:
+            result = self._safe_execute(query, (x_gm_msgid, thread_marker), commit=True)
+            affected = getattr(result, 'rowcount', 0) if result else 0
+            return affected > 0
+        except Exception as e:
+            logging.error("Error marking email as processed: %s", e)
+            return False

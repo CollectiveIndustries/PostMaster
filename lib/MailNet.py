@@ -2,6 +2,7 @@ import logging
 import os
 import pickle
 import threading
+from pathlib import Path
 
 import tensorflow as tf
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Embedding, Input
@@ -107,41 +108,88 @@ class MailNet:
             # Update class_id for each email
             for email, prediction in zip(emails, predictions):
                 email.class_id = 1 if prediction > 0.5 else 0
-                logging.debug(f"Email: {email.text()}, Prediction: {prediction}, Class ID: {email.class_id}")
+                logging.debug(f"Email subject: {email.subject[:50] if email.subject else 'None'}, Prediction: {prediction}, Class ID: {email.class_id}")
 
-    def save_model(self, model_path: str = f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras") -> None:
+    def save_model(self, model_path: str = None) -> None:
         """Save the model and tokenizer to disk."""
+        if model_path is None:
+            model_path = f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras"
+        
         if not self.model:
             raise ValueError("No model found to save.")
-        self.model.save(model_path)
-        logging.info(f"Model saved to '{model_path}'")
-        tokenizer_path = f"{config.TRAINING_DATA_PATH}/tokenizer.pkl"
-        with open(tokenizer_path, "wb") as f:
-            pickle.dump(self.tokenizer, f)
-        logging.info(f"Tokenizer saved to '{tokenizer_path}'")
-
-    def load_model(self, model_path: str = f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras") -> None:
-        """Load a model and tokenizer from disk or create new ones if they don't exist."""
-        if os.path.exists(model_path):
-            self.model = load_model(model_path)
-            logging.info(f"Model loaded from '{model_path}'")
-        else:
-            self.model = self._create_model()
+        
+        # Ensure directory exists
+        model_dir = Path(model_path).parent
+        model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Check write permissions
+        if not os.access(model_dir, os.W_OK):
+            logging.error("No write permission for model directory: %s", model_dir)
+            return False
+        
+        try:
             self.model.save(model_path)
-            logging.info(f"New model created and saved to '{model_path}'")
-        tokenizer_path = f"{config.TRAINING_DATA_PATH}/tokenizer.pkl"
-        if os.path.exists(tokenizer_path):
-            with open(tokenizer_path, "rb") as f:
-                self.tokenizer = pickle.load(f)
-            self.vocab_size = len(self.tokenizer.word_index) + 1
-            logging.info(f"Tokenizer loaded from '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}")
-        else:
-            self.tokenizer = Tokenizer(num_words=self.max_vocab_size, oov_token="<OOV>")
+            logging.info(f"Model saved to '{model_path}'")
+            tokenizer_path = f"{config.TRAINING_DATA_PATH}/tokenizer.pkl"
             with open(tokenizer_path, "wb") as f:
                 pickle.dump(self.tokenizer, f)
-            logging.info(
-                f"New tokenizer created and saved to '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}"
-            )
+            logging.info(f"Tokenizer saved to '{tokenizer_path}'")
+            return True
+        except Exception as e:
+            logging.error("Failed to save model: %s", e)
+            return False
+
+    def load_model(self, model_path: str = None) -> bool:
+        """Load a model and tokenizer from disk or create new ones if they don't exist."""
+        if model_path is None:
+            model_path = f"{config.TRAINING_DATA_PATH}/SpamVanquisher_TensorFlow.keras"
+        
+        # Ensure directory exists
+        model_dir = Path(model_path).parent
+        model_dir.mkdir(parents=True, exist_ok=True)
+        
+        if os.path.exists(model_path):
+            try:
+                self.model = load_model(model_path)
+                logging.info(f"Model loaded from '{model_path}'")
+            except Exception as e:
+                logging.error(f"Failed to load model from '{model_path}': {e}")
+                self.model = self._create_model()
+                logging.info("Created new model as fallback")
+        else:
+            self.model = self._create_model()
+            logging.info(f"New model created and saved to '{model_path}'")
+            # Save the new model
+            try:
+                self.model.save(model_path)
+            except Exception as e:
+                logging.error(f"Failed to save new model: {e}")
+        
+        tokenizer_path = f"{config.TRAINING_DATA_PATH}/tokenizer.pkl"
+        if os.path.exists(tokenizer_path):
+            try:
+                with open(tokenizer_path, "rb") as f:
+                    self.tokenizer = pickle.load(f)
+                self.vocab_size = len(self.tokenizer.word_index) + 1
+                logging.info(f"Tokenizer loaded from '{tokenizer_path}', total tokens: {len(self.tokenizer.word_index)}")
+            except Exception as e:
+                logging.error(f"Failed to load tokenizer: {e}")
+                self._create_new_tokenizer()
+        else:
+            self._create_new_tokenizer()
+            logging.info(f"New tokenizer created and saved to '{tokenizer_path}'")
+        
+        return True
+
+    def _create_new_tokenizer(self):
+        """Create and save a new tokenizer"""
+        self.tokenizer = Tokenizer(num_words=self.max_vocab_size, oov_token="<OOV>")
+        tokenizer_path = f"{config.TRAINING_DATA_PATH}/tokenizer.pkl"
+        try:
+            with open(tokenizer_path, "wb") as f:
+                pickle.dump(self.tokenizer, f)
+        except Exception as e:
+            logging.error(f"Failed to save new tokenizer: {e}")
 
     def _create_model(self) -> Sequential:
         """Define and return a new TensorFlow model."""
