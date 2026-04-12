@@ -67,3 +67,6 @@ signal
 sys
 threading
 time
+arch.mmd
+arch.mmd.clean
+.repomap.tags.cache.v1/cache.db
